@@ -14,10 +14,18 @@ type HelpModel struct {
 	quitting bool
 }
 
-func NewHelpModel() HelpModel {
-	return HelpModel{
-		Keys:  utils.DefaultShortKeys,
-		Model: help.New(),
+func NewHelpModel(isShortHelp bool) HelpModel {
+	if isShortHelp {
+		return HelpModel{
+			Keys:  utils.DefaultShortKeys,
+			Model: help.New(),
+		}
+	} else {
+		return HelpModel{
+			Keys:  utils.DefaultKeys,
+			Model: help.New(),
+		}
+
 	}
 }
 

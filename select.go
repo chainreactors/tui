@@ -1,8 +1,6 @@
 package tui
 
 import (
-	"github.com/chainreactors/tui/utils"
-	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"strings"
 )
@@ -10,7 +8,6 @@ import (
 func NewSelect(choices []string) *SelectModel {
 	return &SelectModel{
 		Choices: choices,
-		Help:    NewHelpModel(),
 	}
 }
 
@@ -22,7 +19,6 @@ type SelectModel struct {
 	NewKey       tea.Key
 	IsQuit       bool
 	Title        string
-	Help         HelpModel
 }
 
 func (m *SelectModel) Init() tea.Cmd {
@@ -49,7 +45,6 @@ func (m *SelectModel) View() string {
 			view.WriteRune('\n')
 		}
 	}
-	view.WriteString(m.Help.Model.View(m.Help.Keys))
 	view.WriteRune('\n')
 	return view.String()
 }
@@ -59,11 +54,6 @@ type KeyHandler func(*SelectModel, tea.Msg) (tea.Model, tea.Cmd)
 func (m *SelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch {
-		case key.Matches(msg, utils.DefaultKeys.Help):
-			m.Help.Model.ShowAll = !m.Help.Model.ShowAll
-			return m, nil
-		}
 		switch msg.Type {
 		case tea.KeyEsc:
 			return m, tea.Quit

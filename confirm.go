@@ -2,8 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"github.com/chainreactors/tui/utils"
-	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"strings"
@@ -15,7 +13,6 @@ func NewConfirm(title string) *ConfirmModel {
 	return &ConfirmModel{
 		textInput: ti,
 		Title:     title,
-		Help:      NewHelpModel(),
 	}
 }
 
@@ -24,7 +21,6 @@ type ConfirmModel struct {
 	Title     string
 	quitting  bool
 	Confirmed bool
-	Help      HelpModel
 }
 
 func (m ConfirmModel) Init() tea.Cmd {
@@ -34,11 +30,6 @@ func (m ConfirmModel) Init() tea.Cmd {
 func (m ConfirmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch {
-		case key.Matches(msg, utils.DefaultKeys.Help):
-			m.Help.Model.ShowAll = !m.Help.Model.ShowAll
-			return m, nil
-		}
 		switch msg.Type {
 		case tea.KeyEsc, tea.KeyCtrlC, tea.KeyCtrlQ:
 			m.quitting = true
@@ -70,5 +61,5 @@ func (m ConfirmModel) View() string {
 		return "You chose: No\n"
 	}
 	return fmt.Sprintf(
-		"%s(yes/no)\n\n%s\n%s\n", m.Title, m.textInput.View(), m.Help.View())
+		"%s(yes/no)\n\n%s\n", m.Title, m.textInput.View())
 }

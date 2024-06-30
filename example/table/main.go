@@ -50,6 +50,6 @@ func main() {
 	}
 	newTable.Rows = rows
 	newTable.SetRows()
-	tableModel := tui.NewModel(newTable, newTable.ConsoleHandler)
+	tableModel := tui.NewModel(newTable, newTable.ConsoleHandler, true, false)
 	tableModel.Run()
 }

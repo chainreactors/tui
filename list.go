@@ -43,6 +43,7 @@ func (m listModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m listModel) View() string {
+	m.list.SetShowHelp(false)
 	return utils.DocStyle.Render(m.list.View())
 }
 

@@ -10,6 +10,7 @@ import (
 func NewConfirm(title string) *ConfirmModel {
 	ti := textinput.New()
 	ti.Placeholder = "y/n"
+	ti.Focus()
 	return &ConfirmModel{
 		textInput: ti,
 		Title:     title,

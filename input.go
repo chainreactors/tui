@@ -8,6 +8,7 @@ import (
 
 func NewInput(title string) *InputModel {
 	ti := textinput.New()
+	ti.Focus()
 	return &InputModel{
 		TextInput: ti,
 		Title:     title,

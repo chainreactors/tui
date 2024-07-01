@@ -48,8 +48,7 @@ func main() {
 			"",
 		},
 	}
-	newTable.Rows = rows
-	newTable.SetRows()
+	newTable.SetRows(rows)
 	tableModel := tui.NewModel(newTable, newTable.ConsoleHandler, true, false)
 	tableModel.Run()
 }

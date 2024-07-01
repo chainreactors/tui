@@ -118,7 +118,8 @@ func (t *TableModel) View() string {
 		fmt.Sprintf("\nPage %d of %d\n", t.currentPage, t.totalPages)
 }
 
-func (t *TableModel) SetRows() {
+func (t *TableModel) SetRows(rows []table.Row) {
+	t.Rows = rows
 	if t.isStatic {
 		t.rowsPerPage = len(t.Rows)
 	}

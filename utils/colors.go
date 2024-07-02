@@ -29,9 +29,9 @@ var ClientPrompt = adaptTermColor()
 func adaptTermColor() string {
 	var color string
 	if termenv.HasDarkBackground() {
-		color = "\033[37mIOM> \033[0m"
+		color = "\033[37m> \033[0m"
 	} else {
-		color = "\033[30mIOM> \033[0m"
+		color = "\033[30m> \033[0m"
 	}
 	return color
 }

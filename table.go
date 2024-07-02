@@ -57,44 +57,30 @@ func (t *TableModel) Init() tea.Cmd { return nil }
 
 func (t *TableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
-	if !t.isStatic {
-		switch msg := msg.(type) {
-		case tea.KeyMsg:
-			switch {
-			case key.Matches(msg, utils.DefaultKeys.Right): // Next page
-				if t.currentPage < t.totalPages {
-					t.currentPage++
-				}
-				return t, nil
-			case key.Matches(msg, utils.DefaultKeys.Left): // Previous page
-				if t.currentPage > 1 {
-					t.currentPage--
-				}
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch {
+		case key.Matches(msg, utils.DefaultKeys.Right): // Next page
+			if t.currentPage < t.totalPages {
+				t.currentPage++
 			}
-			switch msg.Type {
-			case tea.KeyCtrlC, tea.KeyEsc, tea.KeyCtrlQ:
-				return t, tea.Quit
-			case tea.KeyEnter:
-				t.handleSelectedRow()
-				return t, tea.Quit
-			}
-			t.UpdatePagination()
-		}
-		t.table, cmd = t.table.Update(msg)
-		return t, tea.Batch(cmd)
-	} else {
-		switch msg := msg.(type) {
-		case tea.KeyMsg:
-			switch {
-			case key.Matches(msg, utils.DefaultKeys.Console):
-				return t, nil
-			default:
-				t.table, cmd = t.table.Update(utils.DefaultKeys.Quit)
-				return t, tea.Quit
+			return t, nil
+		case key.Matches(msg, utils.DefaultKeys.Left): // Previous page
+			if t.currentPage > 1 {
+				t.currentPage--
 			}
 		}
-		return t, nil
+		switch msg.Type {
+		case tea.KeyCtrlC, tea.KeyEsc, tea.KeyCtrlQ:
+			return t, tea.Quit
+		case tea.KeyEnter:
+			t.handleSelectedRow()
+			return t, tea.Quit
+		}
+		t.UpdatePagination()
 	}
+	t.table, cmd = t.table.Update(msg)
+	return t, tea.Batch(cmd)
 }
 
 func (t *TableModel) View() string {
@@ -121,7 +107,9 @@ func (t *TableModel) View() string {
 func (t *TableModel) SetRows(rows []table.Row) {
 	t.Rows = rows
 	if t.isStatic {
-		t.rowsPerPage = len(t.Rows)
+		t.handle = func() {
+			t.Update(tea.Quit())
+		}
 	}
 	t.table.SetRows(t.Rows)
 	t.totalPages = len(t.Rows) / t.rowsPerPage

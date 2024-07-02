@@ -92,9 +92,8 @@ func (t *TableModel) View() string {
 	if endIndex > len(t.Rows) {
 		endIndex = len(t.Rows)
 	}
-
+	t.table.SetRows(t.Rows[startIndex:endIndex])
 	if len(t.highlightRows) > 0 {
-		t.table.SetRows(t.Rows[startIndex:endIndex])
 		t.table.SetCursor(t.highlightRows[0])
 		defer t.CleanHighlight()
 		return fmt.Sprintf("%s\n", t.Title) + utils.FootStyle.Render(t.headersView()+"\n"+t.highView(t.Rows)) +

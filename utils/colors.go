@@ -36,12 +36,13 @@ func adaptTermColor() string {
 	return color
 }
 
-func AdaptSessionColor(sId string) string {
+func AdaptSessionColor(prePrompt, sId string) string {
 	var sessionPrompt string
+	runes := []rune(sId)
 	if termenv.HasDarkBackground() {
-		sessionPrompt = fmt.Sprintf("\033[37mIOM [%s]> \033[0m", sId[0:5])
+		sessionPrompt = fmt.Sprintf("\033[37m%s [%s]> \033[0m", prePrompt, string(runes))
 	} else {
-		sessionPrompt = fmt.Sprintf("\033[30mIOM [%s]> \033[0m", sId[0:5])
+		sessionPrompt = fmt.Sprintf("\033[30m%s [%s]> \033[0m", prePrompt, string(runes))
 	}
 	return sessionPrompt
 }

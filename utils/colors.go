@@ -22,16 +22,16 @@ var (
 	Down  = output.CursorNextLine
 )
 
-var ClientPrompt = adaptTermColor()
+//var ClientPrompt = AdaptTermColor()
 
 // adaptTermColor - Adapt term color
 // TODO: Adapt term color by term(fork grumble ColorTableFg)
-func adaptTermColor() string {
+func AdaptTermColor(prompt string) string {
 	var color string
 	if termenv.HasDarkBackground() {
-		color = "\033[37m> \033[0m"
+		color = fmt.Sprintf("\033[37m%s> \033[0m", prompt)
 	} else {
-		color = "\033[30m> \033[0m"
+		color = fmt.Sprintf("\033[30m%s> \033[0m", prompt)
 	}
 	return color
 }

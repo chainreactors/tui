@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"github.com/chainreactors/tui/utils"
 	"github.com/charmbracelet/bubbles/progress"
 	tea "github.com/charmbracelet/bubbletea"
 	"strings"
@@ -96,7 +95,7 @@ func (m *BarModel) View() string {
 	pad := strings.Repeat(" ", padding)
 	return "\n" +
 		pad + m.Model.ViewAs(m.progressPercent) + "\n\n" +
-		pad + utils.HelpStyle("Press any key to quit")
+		pad + HelpStyle("Press any key to quit")
 }
 
 func setPercentMsg(percent float64) tea.Cmd {

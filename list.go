@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"github.com/chainreactors/tui/utils"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -33,7 +32,7 @@ func (m listModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 	case tea.WindowSizeMsg:
-		h, v := utils.DocStyle.GetFrameSize()
+		h, v := DocStyle.GetFrameSize()
 		m.list.SetSize(msg.Width-h, msg.Height-v)
 	}
 
@@ -44,7 +43,7 @@ func (m listModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m listModel) View() string {
 	m.list.SetShowHelp(false)
-	return utils.DocStyle.Render(m.list.View())
+	return DocStyle.Render(m.list.View())
 }
 
 func Newlist(items []list.Item) *listModel {

@@ -1,4 +1,4 @@
-package utils
+package tui
 
 import (
 	"github.com/charmbracelet/bubbles/table"

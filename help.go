@@ -1,14 +1,13 @@
 package tui
 
 import (
-	"github.com/chainreactors/tui/utils"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 type HelpModel struct {
-	Keys     utils.DefaultKeyMap
+	Keys     DefaultKeyMap
 	Model    help.Model
 	lastKey  string
 	quitting bool
@@ -17,12 +16,12 @@ type HelpModel struct {
 func NewHelpModel(isShortHelp bool) HelpModel {
 	if isShortHelp {
 		return HelpModel{
-			Keys:  utils.DefaultShortKeys,
+			Keys:  DefaultShortKeys,
 			Model: help.New(),
 		}
 	} else {
 		return HelpModel{
-			Keys:  utils.DefaultKeys,
+			Keys:  DefaultKeys,
 			Model: help.New(),
 		}
 
@@ -66,6 +65,6 @@ func (m HelpModel) View() string {
 	return "\n" + helpView + "\n"
 }
 
-func (m HelpModel) SetKeys(keys utils.DefaultKeyMap) {
+func (m HelpModel) SetKeys(keys DefaultKeyMap) {
 	m.Keys = keys
 }

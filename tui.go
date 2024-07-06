@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"github.com/chainreactors/tui/utils"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -59,7 +58,7 @@ func (t Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		switch {
-		case key.Matches(msg, utils.DefaultKeys.Help):
+		case key.Matches(msg, DefaultKeys.Help):
 			t.Help.Model.ShowAll = !t.Help.Model.ShowAll
 			return t, nil
 		}

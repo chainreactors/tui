@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"github.com/chainreactors/tui/utils"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
@@ -16,13 +15,13 @@ func NewTable(columns []table.Column, isStatic bool) *TableModel {
 		table: table.New(
 			table.WithColumns(columns),
 			table.WithFocused(true)),
-		Style:          utils.DefaultTableStyle,
+		Style:          DefaultTableStyle,
 		Columns:        columns,
 		rowsPerPage:    10,
 		isStatic:       isStatic,
-		highlightStyle: utils.DefaultTableHighlineStyle,
+		highlightStyle: DefaultTableHighlineStyle,
 	}
-	t.table.SetStyles(utils.DefaultTableStyle)
+	t.table.SetStyles(DefaultTableStyle)
 	return t
 }
 
@@ -60,12 +59,12 @@ func (t *TableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch {
-		case key.Matches(msg, utils.DefaultKeys.Right): // Next page
+		case key.Matches(msg, DefaultKeys.Right): // Next page
 			if t.currentPage < t.totalPages {
 				t.currentPage++
 			}
 			return t, nil
-		case key.Matches(msg, utils.DefaultKeys.Left): // Previous page
+		case key.Matches(msg, DefaultKeys.Left): // Previous page
 			if t.currentPage > 1 {
 				t.currentPage--
 			}
@@ -96,10 +95,10 @@ func (t *TableModel) View() string {
 	if len(t.highlightRows) > 0 {
 		t.table.SetCursor(t.highlightRows[0])
 		defer t.CleanHighlight()
-		return fmt.Sprintf("%s\n", t.Title) + utils.FootStyle.Render(t.headersView()+"\n"+t.highView(t.Rows)) +
+		return fmt.Sprintf("%s\n", t.Title) + FootStyle.Render(t.headersView()+"\n"+t.highView(t.Rows)) +
 			fmt.Sprintf("\nPage %d of %d\n", t.currentPage, t.totalPages)
 	}
-	return fmt.Sprintf("%s\n", t.Title) + "\n" + utils.FootStyle.Render(t.table.View()) +
+	return fmt.Sprintf("%s\n", t.Title) + "\n" + FootStyle.Render(t.table.View()) +
 		fmt.Sprintf("\nPage %d of %d\n", t.currentPage, t.totalPages)
 }
 

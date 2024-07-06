@@ -13,6 +13,8 @@ require (
 require (
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
+	github.com/chainreactors/files v0.0.0-20231102192550-a652458cee26 // indirect
+	github.com/chainreactors/logs v0.0.0-20240207121836-c946f072f81f // indirect
 	github.com/charmbracelet/harmonica v0.2.0 // indirect
 	github.com/charmbracelet/x/ansi v0.1.2 // indirect
 	github.com/charmbracelet/x/input v0.1.0 // indirect

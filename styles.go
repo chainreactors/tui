@@ -1,20 +1,19 @@
 package tui
 
 import (
+	"github.com/chainreactors/logs"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 )
 
 const (
-	Debug     Level = 10
-	Warn      Level = 20
-	Info      Level = 30
-	Error     Level = 40
-	Important Level = 50
+	Debug     logs.Level = 10
+	Warn      logs.Level = 20
+	Info      logs.Level = 30
+	Error     logs.Level = 40
+	Important logs.Level = 50
 )
-
-type Level int
 
 // base styles
 var (
@@ -34,7 +33,7 @@ var (
 
 // Default Styles
 var (
-	DefaultLogStyle = map[Level]string{
+	DefaultLogStyle = map[logs.Level]string{
 
 		Debug:     termenv.String(Rocket+"[+]").Bold().Background(Blue).String() + " %s ",
 		Warn:      termenv.String(Zap+"[warn]").Bold().Background(Yellow).String() + " %s ",

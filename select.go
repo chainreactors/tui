@@ -45,7 +45,6 @@ func (m *SelectModel) View() string {
 			view.WriteRune('\n')
 		}
 	}
-	view.WriteRune('\n')
 	return view.String()
 }
 

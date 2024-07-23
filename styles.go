@@ -17,11 +17,11 @@ const (
 
 // base styles
 var (
-	HeaderStyle = lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).
+	FootStyle = lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).
 			BorderForeground(lipgloss.Color("240")).
 			BorderBottom(true).
 			Bold(false)
-	FootStyle = lipgloss.NewStyle().
+	HeaderStyle = lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("240"))
 	SelectStyle = lipgloss.NewStyle().
@@ -34,7 +34,6 @@ var (
 // Default Styles
 var (
 	DefaultLogStyle = map[logs.Level]string{
-
 		Debug:     termenv.String(Rocket+"[+]").Bold().Background(Blue).String() + " %s ",
 		Warn:      termenv.String(Zap+"[warn]").Bold().Background(Yellow).String() + " %s ",
 		Important: termenv.String(Fire+"[*]").Bold().Background(Purple).String() + " %s ",

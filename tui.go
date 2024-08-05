@@ -38,10 +38,7 @@ func (t Model) Run() error {
 	if err != nil {
 		return err
 	}
-	_, err = os.Stdin.Write([]byte("\n"))
-	if err != nil {
-		return err
-	}
+	os.Stdin.Write([]byte("\n"))
 	return nil
 }
 

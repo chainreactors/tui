@@ -1,18 +1,8 @@
 package tui
 
 import (
-	"github.com/chainreactors/logs"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
-)
-
-const (
-	Debug     logs.Level = 10
-	Warn      logs.Level = 20
-	Info      logs.Level = 30
-	Error     logs.Level = 40
-	Important logs.Level = 50
 )
 
 // base styles
@@ -33,14 +23,6 @@ var (
 
 // Default Styles
 var (
-	DefaultLogStyle = map[logs.Level]string{
-		Debug:     termenv.String(Rocket+"[+]").Bold().Background(Blue).String() + " %s ",
-		Warn:      termenv.String(Zap+"[warn]").Bold().Background(Yellow).String() + " %s ",
-		Important: termenv.String(Fire+"[*]").Bold().Background(Purple).String() + " %s ",
-		Info:      termenv.String(HotSpring+"[i]").Bold().Background(Green).String() + " %s ",
-		Error:     termenv.String(Monster+"[-]").Bold().Background(Red).String() + " %s ",
-	}
-
 	DefaultTableStyle = table.Styles{
 		Selected: table.DefaultStyles().Selected.Foreground(lipgloss.Color("229")).
 			Background(lipgloss.Color("57")).

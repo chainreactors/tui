@@ -3,6 +3,7 @@ package tui
 import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"os"
 )
 
 type Mode int
@@ -34,6 +35,10 @@ func NewModel(funcModel tea.Model, handler func(value string), isConsole bool, i
 func (t Model) Run() error {
 	p := tea.NewProgram(t)
 	_, err := p.Run()
+	if err != nil {
+		return err
+	}
+	_, err = os.Stdin.Write([]byte("\n"))
 	if err != nil {
 		return err
 	}

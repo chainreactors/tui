@@ -95,10 +95,10 @@ func (t *TableModel) View() string {
 	if len(t.highlightRows) > 0 {
 		t.table.SetCursor(t.highlightRows[0])
 		defer t.CleanHighlight()
-		return fmt.Sprintf("%s\n", t.Title) + FootStyle.Render(t.headersView()+"\n"+t.highView(t.Rows)) +
+		return fmt.Sprintf("%s\n", t.Title) + HeaderStyle.Render(t.headersView()+"\n"+t.highView(t.Rows)) +
 			fmt.Sprintf("\nPage %d of %d\n", t.currentPage, t.totalPages)
 	}
-	return fmt.Sprintf("%s\n", t.Title) + "\n" + FootStyle.Render(t.table.View()) +
+	return fmt.Sprintf("%s\n", t.Title) + "\n" + HeaderStyle.Render(t.table.View()) +
 		fmt.Sprintf("\nPage %d of %d\n", t.currentPage, t.totalPages)
 }
 

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"os"
@@ -38,6 +39,8 @@ func (t Model) Run() error {
 	if err != nil {
 		return err
 	}
+	fmt.Printf(HelpStyle("Press enter to exit"))
+	fmt.Printf("\n")
 	os.Stdin.Write([]byte("\n"))
 	return nil
 }
@@ -52,6 +55,8 @@ func (t Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					t.currentMode = ModeConsole
 					return t, nil
 				}
+			} else if msg.String() == "enter" {
+				t.Help.Quitting = true
 			}
 		case ModeConsole:
 			if msg.String() == "esc" {

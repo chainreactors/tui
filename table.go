@@ -105,6 +105,8 @@ func (t *TableModel) View() string {
 func (t *TableModel) SetRows(rows []table.Row) {
 	t.Rows = rows
 	if t.isStatic {
+		t.table.SetHeight(len(t.Rows) + 1)
+		t.rowsPerPage = len(t.Rows)
 		t.handle = func() {
 			t.Update(tea.Quit())
 		}

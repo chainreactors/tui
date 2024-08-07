@@ -10,7 +10,7 @@ type HelpModel struct {
 	Keys     DefaultKeyMap
 	Model    help.Model
 	lastKey  string
-	quitting bool
+	Quitting bool
 }
 
 func NewHelpModel(isShortHelp bool) HelpModel {
@@ -38,7 +38,6 @@ func (m HelpModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// If we set a width on the Help menu it can gracefully truncate
 		// its view as needed.
 		m.Model.Width = msg.Width
-
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, m.Keys.Up):
@@ -52,8 +51,13 @@ func (m HelpModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.Keys.Help):
 			m.Model.ShowAll = !m.Model.ShowAll
 		case key.Matches(msg, m.Keys.Quit):
-			m.quitting = true
+			m.Quitting = true
 			return m, tea.Quit
+		}
+		switch msg.Type {
+		case tea.KeyEnter:
+			m.Quitting = true
+			return m, tea.ClearScreen
 		}
 	}
 
@@ -61,7 +65,12 @@ func (m HelpModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m HelpModel) View() string {
-	helpView := m.Model.View(m.Keys)
+	var helpView string
+	if m.Quitting {
+		helpView = ""
+	} else {
+		helpView = m.Model.View(m.Keys)
+	}
 	return "\n" + helpView + "\n"
 }
 

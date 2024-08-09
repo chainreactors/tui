@@ -39,9 +39,10 @@ func (t Model) Run() error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf(HelpStyle("Press enter to exit"))
+	fmt.Printf(HelpStyle("<Press enter to exit>"))
 	fmt.Printf("\n")
 	os.Stdin.Write([]byte("\n"))
+	ClearLines(2)
 	return nil
 }
 
@@ -55,7 +56,8 @@ func (t Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					t.currentMode = ModeConsole
 					return t, nil
 				}
-			} else if msg.String() == "enter" {
+			} else if msg.String() == "enter" || msg.String() == "ctrl+c" || msg.String() == "ctrl+q" ||
+				msg.String() == "esc" {
 				t.Help.Quitting = true
 			}
 		case ModeConsole:

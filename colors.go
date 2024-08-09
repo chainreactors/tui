@@ -16,10 +16,11 @@ var (
 ) // You can use ANSI color codes directly
 
 var (
-	Reset = output.Reset
-	Clear = output.ClearLine
-	UpN   = output.CursorPrevLine
-	Down  = output.CursorNextLine
+	Reset      = output.Reset
+	Clear      = output.ClearLine
+	UpN        = output.CursorPrevLine
+	Down       = output.CursorNextLine
+	ClearLines = output.ClearLines
 )
 
 //var ClientPrompt = AdaptTermColor()

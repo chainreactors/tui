@@ -31,6 +31,7 @@ type TableModel struct {
 	Style          table.Styles
 	Columns        []table.Column
 	Rows           []table.Row
+	AllRows        []table.Row
 	currentPage    int
 	totalPages     int
 	rowsPerPage    int
@@ -39,6 +40,7 @@ type TableModel struct {
 	handle         func()
 	Title          string
 	highlightRows  []int
+	searchString   string
 	highlightStyle lipgloss.Style
 }
 
@@ -71,6 +73,11 @@ func (t *TableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc, tea.KeyCtrlQ:
+			if len(t.highlightRows) > 0 {
+				t.CleanHighlight()
+				t.SetRows(t.AllRows)
+				return t, nil
+			}
 			return t, tea.Quit
 		case tea.KeyEnter:
 			t.handleSelectedRow()
@@ -93,13 +100,12 @@ func (t *TableModel) View() string {
 	}
 	t.table.SetRows(t.Rows[startIndex:endIndex])
 	if len(t.highlightRows) > 0 {
-		t.table.SetCursor(t.highlightRows[0])
-		defer t.CleanHighlight()
-		return fmt.Sprintf("%s\n", t.Title) + HeaderStyle.Render(t.headersView()+"\n"+t.highView(t.Rows)) +
-			fmt.Sprintf("\nPage %d of %d\n", t.currentPage, t.totalPages)
+		return fmt.Sprintf("%s\n", t.Title) + "\n" + HeaderStyle.Render(t.table.View()) + "\n" +
+			t.pageView(fmt.Sprintf("\nPage %d of %d", t.currentPage, t.totalPages)+
+				t.searchView(t.searchString+"\n"))
 	}
-	return fmt.Sprintf("%s\n", t.Title) + "\n" + HeaderStyle.Render(t.table.View()) +
-		fmt.Sprintf("\nPage %d of %d\n", t.currentPage, t.totalPages)
+	return fmt.Sprintf("%s\n", t.Title) + "\n" + HeaderStyle.Render(t.table.View()) + "\n" +
+		t.pageView(fmt.Sprintf("\nPage %d of %d\n", t.currentPage, t.totalPages))
 }
 
 func (t *TableModel) SetRows(rows []table.Row) {
@@ -113,6 +119,7 @@ func (t *TableModel) SetRows(rows []table.Row) {
 	}
 	t.table.SetRows(t.Rows)
 	t.totalPages = len(t.Rows) / t.rowsPerPage
+	t.table.SetHeight(t.rowsPerPage + 1)
 	if len(t.Rows)%t.rowsPerPage != 0 {
 		t.totalPages++
 	}
@@ -129,6 +136,7 @@ func (t *TableModel) SetHandle(handle func()) {
 
 func (t *TableModel) CleanHighlight() {
 	t.highlightRows = []int{}
+	t.searchString = ""
 }
 
 func (t *TableModel) GetSelectedRow() table.Row {
@@ -140,7 +148,13 @@ func (t *TableModel) ConsoleHandler(value string) {
 	if strings.HasPrefix(value, "/") {
 		searchString := strings.TrimPrefix(value, "/")
 		t.highlightRows = t.searchRows(searchString)
-		t.table.SetCursor(t.highlightRows[0])
+		var rows []table.Row
+		for _, i := range t.highlightRows {
+			rows = append(rows, t.Rows[i])
+		}
+		t.AllRows = t.Rows
+		t.searchString = "searchString: " + searchString
+		t.SetRows(rows)
 		return
 	}
 }
@@ -158,76 +172,16 @@ func (t *TableModel) searchRows(searchString string) []int {
 	return result
 }
 
-func contains(slice []int, item int) bool {
-	for _, v := range slice {
-		if v == item {
-			return true
-		}
+func (t *TableModel) searchView(s string) string {
+	var width int
+	for i := range t.Columns {
+		width = width + t.Columns[i].Width
 	}
-	return false
+	style := lipgloss.NewStyle().Width(width).MaxWidth(width).Inline(true).Align(lipgloss.Right)
+	return t.Style.Cell.Render(style.Render(runewidth.Truncate(s, width, "…")))
 }
 
-func (t *TableModel) highView(highRows []table.Row) string {
-	renderedRows := make([]string, 0, len(t.Rows))
-	for i := 0; i < len(highRows); i++ {
-		renderedRows = append(renderedRows, t.renderRow(i, highRows))
-	}
-
-	strs := lipgloss.JoinVertical(lipgloss.Left, renderedRows...)
-	strs = strings.ReplaceAll(strs, "\r\n", "\n") // normalize line endings
-	lines := strings.Split(strs, "\n")
-
-	w, h := t.table.Width(), t.table.Height()
-	if sw := t.Style.Selected.GetWidth(); sw != 0 {
-		w = min(w, sw)
-	}
-	if sh := t.Style.Selected.GetHeight(); sh != 0 {
-		h = min(h, sh)
-	}
-	contentWidth := w - t.Style.Selected.GetHorizontalFrameSize()
-	contentHeight := h - t.Style.Selected.GetVerticalFrameSize()
-	contents := lipgloss.NewStyle().
-		Width(contentWidth).      // pad to width.
-		Height(contentHeight).    // pad to height.
-		MaxHeight(contentHeight). // truncate height if taller.
-		MaxWidth(contentWidth).   // truncate width if wider.
-		Render(strings.Join(lines, "\n"))
-	spiltContents := strings.Split(contents, "\n")
-	for _, rowIndex := range t.highlightRows {
-		spiltContents[rowIndex] = t.highlightStyle.Copy().
-			UnsetWidth().UnsetHeight(). // Style size already applied in contents.
-			Render(spiltContents[rowIndex])
-	}
-	contents = strings.Join(spiltContents, "\n")
-	return contents
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func (t *TableModel) renderRow(rowID int, highRows []table.Row) string {
-	var s = make([]string, 0, len(t.Columns))
-	for i, value := range highRows[rowID] {
-		style := lipgloss.NewStyle().Width(t.Columns[i].Width).MaxWidth(t.Columns[i].Width).Inline(true)
-		renderedCell := t.Style.Cell.Render(style.Render(runewidth.Truncate(value, t.Columns[i].Width, "…")))
-		s = append(s, renderedCell)
-	}
-
-	row := lipgloss.JoinHorizontal(lipgloss.Left, s...)
-
-	return row
-}
-
-func (t *TableModel) headersView() string {
-	var s = make([]string, 0, len(t.Columns))
-	for _, col := range t.Columns {
-		style := lipgloss.NewStyle().Width(col.Width).MaxWidth(col.Width).Inline(true)
-		renderedCell := style.Render(runewidth.Truncate(col.Title, col.Width, "…"))
-		s = append(s, t.Style.Header.Render(renderedCell))
-	}
-	return lipgloss.JoinHorizontal(lipgloss.Left, s...)
+func (t *TableModel) pageView(s string) string {
+	style := lipgloss.NewStyle().Inline(true).Align(lipgloss.Left)
+	return style.Render(s)
 }

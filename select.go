@@ -54,7 +54,7 @@ func (m *SelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.Type {
-		case tea.KeyEsc:
+		case tea.KeyEsc, tea.KeyCtrlC, tea.KeyCtrlQ:
 			return m, tea.Quit
 		case tea.KeyUp:
 			m.SelectedItem--

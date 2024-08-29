@@ -36,5 +36,7 @@ var (
 	DefaultTableHighlineStyle = table.DefaultStyles().Selected.Foreground(lipgloss.Color("229")).
 					Background(lipgloss.Color("107")).
 					Bold(false)
-	DocStyle = lipgloss.NewStyle().Margin(1, 2)
+	DocStyle          = lipgloss.NewStyle().Margin(1, 2)
+	DefaultGroupStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#8BE9FD"))
+	DefaultNameStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF79C6"))
 )

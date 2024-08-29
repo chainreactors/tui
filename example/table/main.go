@@ -24,29 +24,17 @@ func main() {
 		{Title: "Size", Width: 7},
 		{Title: "ModTime", Width: 10},
 		{Title: "Link", Width: 15},
-	}, false)
-	rows := []table.Row{
-		{
-			"h3zh1",
-			"true",
-			"17263",
-			"2024.1.18",
-			"",
-		},
-		{
-			"h4zh1",
-			"true",
-			"17263",
-			"2024.1.18",
-			"",
-		},
-		{
-			"h3zh2",
-			"true",
-			"17263",
-			"2024.1.18",
-			"",
-		},
+	}, true)
+	row := table.Row{
+		"0000000",
+		"true",
+		"17263",
+		"2024.1.18",
+		"",
+	}
+	rows := []table.Row{}
+	for i := 0; i < 1000; i++ {
+		rows = append(rows, row)
 	}
 	newTable.SetRows(rows)
 	tableModel := tui.NewModel(newTable, newTable.ConsoleHandler, true, false)

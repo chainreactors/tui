@@ -19,9 +19,12 @@ var (
 	Green     = profile.Color("#2FCB71")
 	Red       = profile.Color("#E74C3C")
 	Gray      = profile.Color("#BDC3C7")
+	DarkGray  = profile.Color("#808080")
 	Cyan      = profile.Color("#1ABC9C")
 	Orange    = profile.Color("#E67E22")
 	Black     = profile.Color("#000000")
+	Pink      = profile.Color("#EE82EE")
+	SlateBlue = profile.Color("#6A5ACD")
 ) // You can use ANSI color codes directly
 
 var (

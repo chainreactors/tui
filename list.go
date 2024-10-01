@@ -51,3 +51,15 @@ func Newlist(items []list.Item) *listModel {
 		list: list.New(items, list.NewDefaultDelegate(), 0, 0),
 	}
 }
+
+func (m listModel) SetSpacing(i int) *listModel {
+	d := list.NewDefaultDelegate()
+	d.SetSpacing(i)
+	m.list.SetDelegate(d)
+	return &m
+}
+
+func (m listModel) SetHeight(i int) *listModel {
+	m.list.SetHeight(i)
+	return &m
+}

@@ -99,6 +99,9 @@ func (t *TableModel) View() string {
 		endIndex = len(t.Rows)
 	}
 	t.table.SetRows(t.Rows[startIndex:endIndex])
+	if t.isStatic {
+		return fmt.Sprintf("%s\n", t.Title) + "\n" + HeaderStyle.Render(t.table.View()) + "\n"
+	}
 	if len(t.highlightRows) > 0 {
 		return fmt.Sprintf("%s\n", t.Title) + "\n" + HeaderStyle.Render(t.table.View()) + "\n" +
 			t.pageView(fmt.Sprintf("\nPage %d of %d", t.currentPage, t.totalPages)+

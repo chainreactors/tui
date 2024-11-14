@@ -1,11 +1,22 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/muesli/termenv"
 	"regexp"
 	"strings"
+)
+
+const (
+	ChildrenTree = 0 + iota
+	InfoTree
+)
+
+var (
+	Children = "|-"
+	Last     = "`-"
 )
 
 // TreeNode represents a Tree node (file or folder)
@@ -23,14 +34,15 @@ type DisplayFunc func(node *TreeNode) string
 
 // TreeModel represents the Bubble Tea model
 type TreeModel struct {
-	Cursor           int                      // Current Selected node index
-	Selected         []string                 // Path to the Selected node
-	Tree             *TreeNode                // Current Tree node
-	Root             *TreeNode                // Store the Root node for navigation
-	headDisplayFn    func() string            // User-defined function for custom display
-	contentDisplayFn DisplayFunc              // User-defined function for custom display
-	keyBindings      map[string]KeyActionFunc // Key bindings and their actions
-
+	Cursor            int                      // Current Selected node index
+	Selected          []string                 // Path to the Selected node
+	Tree              *TreeNode                // Current Tree node
+	Root              *TreeNode                // Store the Root node for navigation
+	headDisplayFn     func() string            // User-defined function for custom display
+	childrenDisplayFn DisplayFunc              // User-defined function for custom display
+	infoDisplayFn     DisplayFunc              // User-defined function for custom display
+	keyBindings       map[string]KeyActionFunc // Key bindings and their actions
+	Type              int                      // Type of the Tree (ChildrenTree or InfoTree)
 }
 
 // Init is the Bubble Tea init function (empty in this case)
@@ -70,20 +82,35 @@ func (m TreeModel) View() string {
 	// Render current path
 	b.WriteString(m.headDisplayFn())
 
-	// Render the Tree structure
-	for i, child := range m.Tree.Children {
-		cursor := " " // No Cursor
-		displayStr := m.contentDisplayFn(child)
-		if m.Cursor == i {
-			cursor = ">"
-			plainDisplayStr := stripAnsiCodes(displayStr)
-			displayStr = termenv.String(plainDisplayStr).Foreground(Pink).String() // Current Selected node
+	switch m.Type {
+	case ChildrenTree:
+		for i, child := range m.Tree.Children {
+			cursor := " " // No Cursor
+			displayStr := m.childrenDisplayFn(child)
+			if m.Cursor == i {
+				cursor = ">"
+				plainDisplayStr := stripAnsiCodes(displayStr)
+				displayStr = termenv.String(plainDisplayStr).Foreground(Pink).String() // Current Selected node
+			}
+
+			b.WriteString(fmt.Sprintf("%s %s\n", cursor, displayStr))
 		}
-
-		// Use the custom display function provided by the user
-
-		b.WriteString(fmt.Sprintf("%s %s\n", cursor, displayStr))
+	case InfoTree:
+		var displayStr string
+		for i, child := range m.Tree.Children {
+			if contains(m.Selected, child.Name) {
+				displayStr = m.infoDisplayFn(child)
+			} else {
+				displayStr = child.Name
+			}
+			if m.Cursor == i {
+				plainDisplayStr := stripAnsiCodes(displayStr)
+				displayStr = termenv.String(plainDisplayStr).Foreground(Pink).String() // Current Selected node
+			}
+			b.WriteString(fmt.Sprintf("%s\n", displayStr))
+		}
 	}
+	// Render the Tree structure
 
 	return b.String()
 }
@@ -105,11 +132,24 @@ func (m TreeModel) SetKeyBinding(key string, action KeyActionFunc) TreeModel {
 	return m
 }
 
-func NewTreeModel(root TreeNode, displayFunc DisplayFunc) TreeModel {
-	return TreeModel{
-		Tree:             &root,
-		Root:             &root,
-		contentDisplayFn: displayFunc,
+func NewTreeModel(root TreeNode, displayFunc DisplayFunc, treeType int) (TreeModel, error) {
+	switch treeType {
+	case ChildrenTree:
+		return TreeModel{
+			Tree:              &root,
+			Root:              &root,
+			childrenDisplayFn: displayFunc,
+			Type:              treeType,
+		}, nil
+	case InfoTree:
+		return TreeModel{
+			Tree:          &root,
+			Root:          &root,
+			infoDisplayFn: displayFunc,
+			Type:          treeType,
+		}, nil
+	default:
+		return TreeModel{}, errors.New("invalid tree type, use ChildrenTree or InfoTree")
 	}
 }
 
@@ -118,4 +158,14 @@ var ansi = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 // Helper function to strip ANSI codes
 func stripAnsiCodes(str string) string {
 	return ansi.ReplaceAllString(str, "")
+}
+
+// contains checks if a string is in a slice
+func contains(slice []string, item string) bool {
+	for _, v := range slice {
+		if v == item {
+			return true
+		}
+	}
+	return false
 }

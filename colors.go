@@ -37,6 +37,7 @@ var (
 	UpN        = output.CursorPrevLine
 	Down       = output.CursorNextLine
 	ClearLines = output.ClearLines
+	ClearAll   = output.ClearScreen
 )
 
 //var ClientPrompt = AdaptTermColor()

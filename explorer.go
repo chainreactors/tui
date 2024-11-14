@@ -34,15 +34,15 @@ type DisplayFunc func(node *TreeNode) string
 
 // TreeModel represents the Bubble Tea model
 type TreeModel struct {
-	Cursor            int                      // Current Selected node index
-	Selected          []string                 // Path to the Selected node
-	Tree              *TreeNode                // Current Tree node
-	Root              *TreeNode                // Store the Root node for navigation
-	headDisplayFn     func() string            // User-defined function for custom display
-	childrenDisplayFn DisplayFunc              // User-defined function for custom display
-	infoDisplayFn     DisplayFunc              // User-defined function for custom display
-	keyBindings       map[string]KeyActionFunc // Key bindings and their actions
-	Type              int                      // Type of the Tree (ChildrenTree or InfoTree)
+	Cursor            int                           // Current Selected node index
+	Selected          []string                      // Path to the Selected node
+	Tree              *TreeNode                     // Current Tree node
+	Root              *TreeNode                     // Store the Root node for navigation
+	headDisplayFn     func(model *TreeModel) string // User-defined function for custom display
+	childrenDisplayFn DisplayFunc                   // User-defined function for custom display
+	infoDisplayFn     DisplayFunc                   // User-defined function for custom display
+	keyBindings       map[string]KeyActionFunc      // Key bindings and their actions
+	Type              int                           // Type of the Tree (ChildrenTree or InfoTree)
 }
 
 // Init is the Bubble Tea init function (empty in this case)
@@ -80,7 +80,7 @@ func (m TreeModel) View() string {
 	var b strings.Builder
 
 	// Render current path
-	b.WriteString(m.headDisplayFn())
+	b.WriteString(m.headDisplayFn(&m))
 
 	switch m.Type {
 	case ChildrenTree:
@@ -115,7 +115,7 @@ func (m TreeModel) View() string {
 	return b.String()
 }
 
-func (m TreeModel) SetHeaderView(headerDisplay func() string) TreeModel {
+func (m TreeModel) SetHeaderView(headerDisplay func(model *TreeModel) string) TreeModel {
 	m.headDisplayFn = headerDisplay
 	return m
 }
@@ -132,6 +132,13 @@ func (m TreeModel) SetKeyBinding(key string, action KeyActionFunc) TreeModel {
 	return m
 }
 
+func (m TreeModel) Run() {
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		fmt.Println("Error running program:", err)
+	}
+
+}
 func NewTreeModel(root TreeNode, displayFunc DisplayFunc, treeType int) (TreeModel, error) {
 	switch treeType {
 	case ChildrenTree:
@@ -140,6 +147,7 @@ func NewTreeModel(root TreeNode, displayFunc DisplayFunc, treeType int) (TreeMod
 			Root:              &root,
 			childrenDisplayFn: displayFunc,
 			Type:              treeType,
+			Selected:          []string{},
 		}, nil
 	case InfoTree:
 		return TreeModel{
@@ -147,6 +155,7 @@ func NewTreeModel(root TreeNode, displayFunc DisplayFunc, treeType int) (TreeMod
 			Root:          &root,
 			infoDisplayFn: displayFunc,
 			Type:          treeType,
+			Selected:      []string{},
 		}, nil
 	default:
 		return TreeModel{}, errors.New("invalid tree type, use ChildrenTree or InfoTree")

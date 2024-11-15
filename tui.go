@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"os"
 	"strings"
 )
 
@@ -43,6 +44,7 @@ func (t Model) Run() error {
 		return err
 	}
 	fmt.Printf(HelpStyle("<Press enter to exit>\n"))
+	os.Stdin.Write([]byte("\n"))
 	ClearLines(1)
 	return nil
 }

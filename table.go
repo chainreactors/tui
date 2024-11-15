@@ -18,8 +18,8 @@ func NewTable(columns []table.Column, isStatic bool) *TableModel {
 		newTable = table.New(columns).WithFooterVisibility(false).WithBaseStyle(styleBase).
 			Border(DefaultBorder)
 	} else {
-		newTable = table.New(columns).Filtered(true).WithBaseStyle(styleBase).
-			Border(DefaultBorder).Focused(true).WithPageSize(10)
+		newTable = table.New(columns).Filtered(true).
+			BorderRounded().Focused(true).WithPageSize(10)
 	}
 	keyMap := table.DefaultKeyMap()
 	keyMap.RowSelectToggle = key.NewBinding(

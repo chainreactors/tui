@@ -1,10 +1,11 @@
 package tui
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
-	"os"
+	"strings"
 )
 
 type Mode int
@@ -15,8 +16,9 @@ const (
 )
 
 type Model struct {
-	FuncModel   tea.Model
-	Help        HelpModel
+	FuncModel tea.Model
+	Help      HelpModel
+	*bytes.Buffer
 	console     tea.Model
 	currentMode Mode
 	isConsole   bool
@@ -30,6 +32,7 @@ func NewModel(funcModel tea.Model, handler func(value string), isConsole bool, i
 		Help:      NewHelpModel(isShortHelp),
 		console:   consoleModel,
 		isConsole: isConsole,
+		Buffer:    bytes.NewBuffer([]byte{}),
 	}
 }
 
@@ -39,10 +42,8 @@ func (t Model) Run() error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf(HelpStyle("<Press enter to exit>"))
-	fmt.Printf("\n")
-	os.Stdin.Write([]byte("\n"))
-	ClearLines(2)
+	fmt.Printf(HelpStyle("<Press enter to exit>\n"))
+	ClearLines(1)
 	return nil
 }
 
@@ -93,14 +94,19 @@ func (t Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (t Model) View() string {
+	var s strings.Builder
+	s.WriteString(t.FuncModel.View())
+	s.WriteString(t.Help.View())
 	switch t.currentMode {
 	case ModeFunc:
-		return t.FuncModel.View() + t.Help.View()
 	case ModeConsole:
-		return t.FuncModel.View() + t.Help.View() + t.console.View()
+		s.WriteString(t.console.View())
 	default:
-		return t.FuncModel.View() + t.Help.View()
 	}
+
+	s.WriteString(t.Buffer.String())
+
+	return s.String()
 }
 
 func (t Model) Init() tea.Cmd {

@@ -15,7 +15,7 @@ var (
 func NewTable(columns []table.Column, isStatic bool) *TableModel {
 	var newTable = table.Model{}
 	if isStatic {
-		newTable = table.New(columns).WithFooterVisibility(false).WithBaseStyle(styleBase).
+		newTable = table.New(columns).WithFooterVisibility(false).
 			Border(DefaultBorder)
 	} else {
 		newTable = table.New(columns).Filtered(true).

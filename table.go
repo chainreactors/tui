@@ -16,7 +16,7 @@ func NewTable(columns []table.Column, isStatic bool) *TableModel {
 	var newTable = table.Model{}
 	if isStatic {
 		newTable = table.New(columns).WithFooterVisibility(false).
-			Border(DefaultBorder)
+			BorderRounded()
 	} else {
 		newTable = table.New(columns).Filtered(true).
 			BorderRounded().Focused(true).WithPageSize(10)

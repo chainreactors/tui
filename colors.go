@@ -6,7 +6,6 @@ import (
 	"github.com/muesli/termenv"
 	"os"
 	"reflect"
-	"regexp"
 	"strings"
 )
 
@@ -76,7 +75,7 @@ func NewSessionColor(prePrompt, sId string) string {
 	return sessionPrompt
 }
 
-func RenderColoredKeyValue(cfg interface{}, keyWidth int, indentLevel int, blacklist ...string) string {
+func RenderStruct(cfg interface{}, keyWidth int, indentLevel int, blacklist ...string) string {
 	var builder strings.Builder
 	v := reflect.ValueOf(cfg)
 	if v.Kind() == reflect.Ptr {
@@ -109,13 +108,13 @@ func RenderColoredKeyValue(cfg interface{}, keyWidth int, indentLevel int, black
 		switch field.Kind() {
 		case reflect.Struct:
 			builder.WriteString(fmt.Sprintf("%s%s:\n", strings.Repeat("\t", indentLevel), coloredKey))
-			builder.WriteString(RenderColoredKeyValue(field.Addr().Interface(), keyWidth, indentLevel+1))
+			builder.WriteString(RenderStruct(field.Addr().Interface(), keyWidth, indentLevel+1))
 		case reflect.Ptr:
 			if field.IsNil() {
 				field.Set(reflect.New(field.Type().Elem()))
 			}
 			builder.WriteString(fmt.Sprintf("%s%s:\n", strings.Repeat("\t", indentLevel), coloredKey))
-			builder.WriteString(RenderColoredKeyValue(field.Interface(), keyWidth, indentLevel+1))
+			builder.WriteString(RenderStruct(field.Interface(), keyWidth, indentLevel+1))
 		case reflect.Slice:
 			builder.WriteString(fmt.Sprintf("%s%s:\n", strings.Repeat("\t", indentLevel), coloredKey))
 			for j := 0; j < field.Len(); j++ {
@@ -138,38 +137,4 @@ func RenderColoredKeyValue(cfg interface{}, keyWidth int, indentLevel int, black
 	}
 
 	return builder.String()
-}
-
-// RenderOpsec renders a description with color based on OPSEC score
-func RenderOpsec(opsec float64, description string) string {
-	ansiEscape := regexp.MustCompile(`\x1b\[[0-9;]*m`)
-	description = ansiEscape.ReplaceAllString(description, "")
-	var coloredDescription string
-	if opsec == 0.0 {
-		description = fmt.Sprintf("%-35s %s", description, "")
-	} else {
-		description = fmt.Sprintf("%-15s %s", description, "")
-	}
-	switch {
-	case opsec > 0 && opsec <= 3.9:
-		coloredDescription = termenv.String(description).Foreground(Red).String()
-	case opsec >= 4.0 && opsec <= 6.9:
-		coloredDescription = termenv.String(description).Foreground(Orange).String()
-	case opsec >= 7.0 && opsec <= 8.9:
-		coloredDescription = termenv.String(description).Foreground(Yellow).String()
-	case opsec >= 9.0 && opsec <= 10.0:
-		coloredDescription = termenv.String(description).Foreground(Green).String()
-	default:
-		if termenv.HasDarkBackground() {
-			coloredDescription = termenv.String(description).Foreground(White).String()
-		} else {
-			coloredDescription = termenv.String(description).Foreground(Black).String()
-		}
-	}
-
-	if opsec == 0.0 {
-		return fmt.Sprintf("%-15s %s", coloredDescription, "")
-	}
-
-	return fmt.Sprintf("%s (opsec %.1f)%-9s", coloredDescription, opsec, "")
 }

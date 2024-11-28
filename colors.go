@@ -75,9 +75,13 @@ func NewSessionColor(prePrompt, sId string) string {
 	return sessionPrompt
 }
 
-func RenderStruct(cfg interface{}, keyWidth int, indentLevel int, blacklist ...string) string {
+func RendStructDefault(stru interface{}, blacklist ...string) string {
+	return RenderStruct(stru, 5, 1, blacklist...)
+}
+
+func RenderStruct(stru interface{}, keyWidth int, indentLevel int, blacklist ...string) string {
 	var builder strings.Builder
-	v := reflect.ValueOf(cfg)
+	v := reflect.ValueOf(stru)
 	if v.Kind() == reflect.Ptr {
 		v = v.Elem()
 	}

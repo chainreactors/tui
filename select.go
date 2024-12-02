@@ -13,7 +13,7 @@ func NewSelect(choices []string) *SelectModel {
 
 type SelectModel struct {
 	Choices      []string
-	selected     []string
+	Selected     string
 	SelectedItem int
 	KeyHandler   KeyHandler
 	NewKey       tea.Key
@@ -30,21 +30,16 @@ func (m *SelectModel) View() string {
 	var view strings.Builder
 	view.WriteString(m.Title)
 	view.WriteRune('\n')
-	if len(m.selected) > 0 {
-		view.WriteString("[x] ")
-		view.WriteString(m.selected[0])
-		view.WriteRune('\n')
-	} else {
-		for i, choice := range m.Choices {
-			if i == m.SelectedItem {
-				view.WriteString("[x] ")
-			} else {
-				view.WriteString("[ ] ")
-			}
-			view.WriteString(choice)
-			view.WriteRune('\n')
+	for i, choice := range m.Choices {
+		if i == m.SelectedItem {
+			view.WriteString("[x] ")
+		} else {
+			view.WriteString("[ ] ")
 		}
+		view.WriteString(choice)
+		view.WriteRune('\n')
 	}
+
 	return view.String()
 }
 
@@ -70,7 +65,7 @@ func (m *SelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case tea.KeyEnter:
 			if m.SelectedItem >= 0 && m.SelectedItem < len(m.Choices) {
-				m.selected = []string{m.Choices[m.SelectedItem]}
+				m.Selected = m.Choices[m.SelectedItem]
 			}
 			return m, tea.Quit
 		case m.NewKey.Type:

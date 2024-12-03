@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/muesli/termenv"
 	"regexp"
 	"strings"
 )
@@ -90,7 +89,7 @@ func (m TreeModel) View() string {
 			if m.Cursor == i {
 				cursor = ">"
 				plainDisplayStr := stripAnsiCodes(displayStr)
-				displayStr = termenv.String(plainDisplayStr).Foreground(Pink).String() // Current Selected node
+				displayStr = PinkFg.Render(plainDisplayStr) // Current Selected node
 			}
 
 			b.WriteString(fmt.Sprintf("%s %s\n", cursor, displayStr))
@@ -105,7 +104,7 @@ func (m TreeModel) View() string {
 			}
 			if m.Cursor == i {
 				plainDisplayStr := stripAnsiCodes(displayStr)
-				displayStr = termenv.String(plainDisplayStr).Foreground(Pink).String() // Current Selected node
+				displayStr = PinkFg.Render(plainDisplayStr) // Current Selected node
 			}
 			b.WriteString(fmt.Sprintf("%s\n", displayStr))
 		}

@@ -15,21 +15,49 @@ var (
 	Normal    = lipgloss.NewStyle().String()
 	Bold      = lipgloss.NewStyle().Bold(true).String()
 	Underline = lipgloss.NewStyle().Underline(true).String()
-	Blue      = profile.Color("#3398DA")
-	Yellow    = profile.Color("#F1C40F")
-	Purple    = profile.Color("#8D44AD")
-	Green     = profile.Color("#2FCB71")
-	Red       = profile.Color("#E74C3C")
-	Gray      = profile.Color("#BDC3C7")
-	DarkGray  = profile.Color("#808080")
-	Cyan      = profile.Color("#1ABC9C")
-	Orange    = profile.Color("#E67E22")
-	Black     = profile.Color("#000000")
-	Pink      = profile.Color("#EE82EE")
-	SlateBlue = profile.Color("#6A5ACD")
-	White     = profile.Color("#FFFFFF")
-) // You can use ANSI color codes directly
 
+	Blue      = lipgloss.Color("#3398DA")
+	Yellow    = lipgloss.Color("#F1C40F")
+	Purple    = lipgloss.Color("#8D44AD")
+	Green     = lipgloss.Color("#2FCB71")
+	Red       = lipgloss.Color("#E74C3C")
+	Gray      = lipgloss.Color("#BDC3C7")
+	DarkGray  = lipgloss.Color("#808080")
+	Cyan      = lipgloss.Color("#1ABC9C")
+	Orange    = lipgloss.Color("#E67E22")
+	Black     = lipgloss.Color("#000000")
+	Pink      = lipgloss.Color("#EE82EE")
+	SlateBlue = lipgloss.Color("#6A5ACD")
+	White     = lipgloss.Color("#FFFFFF")
+
+	BlueFg      = lipgloss.NewStyle().Foreground(Blue)
+	YellowFg    = lipgloss.NewStyle().Foreground(Yellow)
+	PurpleFg    = lipgloss.NewStyle().Foreground(Purple)
+	GreenFg     = lipgloss.NewStyle().Foreground(Green)
+	RedFg       = lipgloss.NewStyle().Foreground(Red)
+	CyanFg      = lipgloss.NewStyle().Foreground(Cyan)
+	OrangeFg    = lipgloss.NewStyle().Foreground(Orange)
+	WhiteFg     = lipgloss.NewStyle().Foreground(White)
+	BlackFg     = lipgloss.NewStyle().Foreground(Black)
+	GrayFg      = lipgloss.NewStyle().Foreground(Gray)
+	SlateBlueFg = lipgloss.NewStyle().Foreground(SlateBlue)
+	DarkGrayFg  = lipgloss.NewStyle().Foreground(DarkGray)
+	PinkFg      = lipgloss.NewStyle().Foreground(Pink)
+
+	BlueBg      = lipgloss.NewStyle().Background(Blue)
+	YellowBg    = lipgloss.NewStyle().Background(Yellow)
+	PurpleBg    = lipgloss.NewStyle().Background(Purple)
+	GreenBg     = lipgloss.NewStyle().Background(Green)
+	RedBg       = lipgloss.NewStyle().Background(Red)
+	CyanBg      = lipgloss.NewStyle().Background(Cyan)
+	OrangeBg    = lipgloss.NewStyle().Background(Orange)
+	WhiteBg     = lipgloss.NewStyle().Background(White)
+	BlackBg     = lipgloss.NewStyle().Background(Black)
+	GrayBg      = lipgloss.NewStyle().Background(Gray)
+	SlateBlueBg = lipgloss.NewStyle().Background(SlateBlue)
+	DarkGrayBg  = lipgloss.NewStyle().Background(DarkGray)
+	PinkBg      = lipgloss.NewStyle().Background(Pink)
+)
 var (
 	Reset      = output.Reset
 	Clear      = output.ClearLine
@@ -105,9 +133,9 @@ func RenderStruct(stru interface{}, keyWidth int, indentLevel int, blacklist ...
 			continue
 		}
 
-		coloredKey := termenv.String(fmt.Sprintf("%-*s", keyWidth, key)).Foreground(Blue).String()
+		coloredKey := BlueFg.Render(fmt.Sprintf("%-*s", keyWidth, key))
 		valueStr := fmt.Sprintf("%v", field.Interface())
-		coloredValue := termenv.String(valueStr).Foreground(Green).String()
+		coloredValue := GreenFg.Render(valueStr)
 
 		switch field.Kind() {
 		case reflect.Struct:
@@ -124,15 +152,15 @@ func RenderStruct(stru interface{}, keyWidth int, indentLevel int, blacklist ...
 			for j := 0; j < field.Len(); j++ {
 				element := field.Index(j)
 				elementStr := fmt.Sprintf("%v", element.Interface())
-				coloredElement := termenv.String(elementStr).Foreground(Green).String()
+				coloredElement := GreenFg.Render(elementStr)
 				builder.WriteString(fmt.Sprintf("%s- %s\n", strings.Repeat("\t", indentLevel+1), coloredElement))
 			}
 		case reflect.Map:
 			builder.WriteString(fmt.Sprintf("%s%s:\n", strings.Repeat("\t", indentLevel), coloredKey))
 			for _, mapKey := range field.MapKeys() {
 				mapValue := field.MapIndex(mapKey)
-				coloredMapKey := termenv.String(fmt.Sprintf("%v", mapKey.Interface())).Foreground(Blue).String()
-				coloredMapValue := termenv.String(fmt.Sprintf("%v", mapValue.Interface())).Foreground(Green).String()
+				coloredMapKey := BlueFg.Render(fmt.Sprintf("%v", mapKey.Interface()))
+				coloredMapValue := GreenFg.Render(fmt.Sprintf("%v", mapValue.Interface()))
 				builder.WriteString(fmt.Sprintf("%s%s: %s\n", strings.Repeat("\t", indentLevel+1), coloredMapKey, coloredMapValue))
 			}
 		default:

@@ -49,6 +49,7 @@ type TableModel struct {
 	filtered       bool
 	handle         func()
 	Title          string
+	selected       table.Row
 	highlightRows  []int
 	searchString   string
 	highlightStyle lipgloss.Style
@@ -79,6 +80,7 @@ func (t *TableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return t, tea.Quit
 		case tea.KeyEnter:
+			t.selected = t.GetHighlightedRow()
 			t.handleSelectedRow()
 			return t, tea.Quit
 		}
@@ -118,8 +120,8 @@ func (t *TableModel) SetMultiline() {
 	t.table = t.table.WithMultiline(true)
 }
 
-func (t *TableModel) GetSelectedRow() []table.Row {
-	selectedRow := t.table.SelectedRows()
+func (t *TableModel) GetSelectedRow() table.Row {
+	selectedRow := t.selected
 	return selectedRow
 }
 

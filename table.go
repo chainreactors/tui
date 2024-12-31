@@ -9,17 +9,18 @@ import (
 )
 
 var (
-	styleBase = HeaderStyle
+	styleBase = lipgloss.NewStyle().
+		Align(lipgloss.Left)
 )
 
 func NewTable(columns []table.Column, isStatic bool) *TableModel {
 	var newTable = table.Model{}
 	if isStatic {
 		newTable = table.New(columns).WithFooterVisibility(false).
-			BorderRounded()
+			BorderRounded().WithBaseStyle(styleBase)
 	} else {
 		newTable = table.New(columns).Filtered(true).
-			BorderRounded().Focused(true).WithPageSize(10)
+			BorderRounded().Focused(true).WithPageSize(10).WithBaseStyle(styleBase)
 	}
 	keyMap := table.DefaultKeyMap()
 	keyMap.RowSelectToggle = key.NewBinding(

@@ -139,32 +139,46 @@ func RenderStruct(stru interface{}, keyWidth int, indentLevel int, blacklist ...
 
 		switch field.Kind() {
 		case reflect.Struct:
-			builder.WriteString(fmt.Sprintf("%s%s:\n", strings.Repeat("\t", indentLevel), coloredKey))
+			builder.WriteString(fmt.Sprintf("%s%s:\n", strings.Repeat("  ", indentLevel), coloredKey))
 			builder.WriteString(RenderStruct(field.Addr().Interface(), keyWidth, indentLevel+1))
 		case reflect.Ptr:
 			if field.IsNil() {
 				field.Set(reflect.New(field.Type().Elem()))
 			}
-			builder.WriteString(fmt.Sprintf("%s%s:\n", strings.Repeat("\t", indentLevel), coloredKey))
+			builder.WriteString(fmt.Sprintf("%s%s:\n", strings.Repeat("  ", indentLevel), coloredKey))
 			builder.WriteString(RenderStruct(field.Interface(), keyWidth, indentLevel+1))
 		case reflect.Slice:
-			builder.WriteString(fmt.Sprintf("%s%s:\n", strings.Repeat("\t", indentLevel), coloredKey))
+			builder.WriteString(fmt.Sprintf("%s%s:\n", strings.Repeat("  ", indentLevel), coloredKey))
 			for j := 0; j < field.Len(); j++ {
 				element := field.Index(j)
-				elementStr := fmt.Sprintf("%v", element.Interface())
-				coloredElement := GreenFg.Render(elementStr)
-				builder.WriteString(fmt.Sprintf("%s- %s\n", strings.Repeat("\t", indentLevel+1), coloredElement))
+				if element.Kind() == reflect.Struct || element.Kind() == reflect.Ptr {
+					builder.WriteString(fmt.Sprintf("%s- \n", strings.Repeat("  ", indentLevel+1)))
+					builder.WriteString(RenderStruct(element.Interface(), keyWidth, indentLevel+2, blacklist...))
+				} else {
+					builder.WriteString(fmt.Sprintf("%s- %s\n", strings.Repeat("  ", indentLevel+1), GreenFg.Render(fmt.Sprintf("%v", element.Interface()))))
+				}
 			}
 		case reflect.Map:
-			builder.WriteString(fmt.Sprintf("%s%s:\n", strings.Repeat("\t", indentLevel), coloredKey))
+			builder.WriteString(fmt.Sprintf("%s%s:\n", strings.Repeat("  ", indentLevel), coloredKey))
 			for _, mapKey := range field.MapKeys() {
 				mapValue := field.MapIndex(mapKey)
 				coloredMapKey := BlueFg.Render(fmt.Sprintf("%v", mapKey.Interface()))
-				coloredMapValue := GreenFg.Render(fmt.Sprintf("%v", mapValue.Interface()))
-				builder.WriteString(fmt.Sprintf("%s%s: %s\n", strings.Repeat("\t", indentLevel+1), coloredMapKey, coloredMapValue))
+				if mapValue.Kind() == reflect.Struct || mapValue.Kind() == reflect.Ptr {
+					builder.WriteString(fmt.Sprintf("%s%s: \n", strings.Repeat("  ", indentLevel+1), coloredMapKey))
+					builder.WriteString(RenderStruct(mapValue.Interface(), keyWidth, indentLevel+2, blacklist...))
+				} else {
+					builder.WriteString(fmt.Sprintf("%s%s: %s\n", strings.Repeat("  ", indentLevel+1), coloredMapKey, GreenFg.Render(fmt.Sprintf("%v", mapValue.Interface()))))
+				}
+			}
+		case reflect.Interface:
+			if !field.IsNil() {
+				builder.WriteString(fmt.Sprintf("%s%s:\n", strings.Repeat("  ", indentLevel), coloredKey))
+				builder.WriteString(RenderStruct(field.Interface(), keyWidth, indentLevel+1, blacklist...))
+			} else {
+				builder.WriteString(fmt.Sprintf("%s%s: <nil>\n", strings.Repeat("  ", indentLevel), coloredKey))
 			}
 		default:
-			builder.WriteString(fmt.Sprintf("%s%s: %s\n", strings.Repeat("\t", indentLevel), coloredKey, coloredValue))
+			builder.WriteString(fmt.Sprintf("%s%s: %s\n", strings.Repeat("  ", indentLevel), coloredKey, coloredValue))
 		}
 	}
 

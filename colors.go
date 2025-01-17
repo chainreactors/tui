@@ -120,65 +120,92 @@ func RenderStruct(stru interface{}, keyWidth int, indentLevel int, blacklist ...
 		blacklistMap[name] = struct{}{}
 	}
 
-	for i := 0; i < v.NumField(); i++ {
-		field := v.Field(i)
-		fieldType := t.Field(i)
+	if v.Kind() == reflect.Struct {
+		// 遍历结构体的字段
+		for i := 0; i < v.NumField(); i++ {
+			field := v.Field(i)
+			fieldType := t.Field(i)
 
-		if !field.CanInterface() {
-			continue
-		}
-
-		key := fieldType.Name
-		if _, ok := blacklistMap[key]; ok {
-			continue
-		}
-
-		coloredKey := BlueFg.Render(fmt.Sprintf("%-*s", keyWidth, key+":"))
-		valueStr := fmt.Sprintf("%v", field.Interface())
-		coloredValue := GreenFg.Render(valueStr)
-
-		switch field.Kind() {
-		case reflect.Struct:
-			builder.WriteString(fmt.Sprintf("%s%s\n", strings.Repeat("  ", indentLevel), coloredKey))
-			builder.WriteString(RenderStruct(field.Addr().Interface(), keyWidth, indentLevel+1))
-		case reflect.Ptr:
-			if field.IsNil() {
-				field.Set(reflect.New(field.Type().Elem()))
+			// 检查字段是否可访问
+			if !field.CanInterface() {
+				continue
 			}
-			builder.WriteString(fmt.Sprintf("%s%s\n", strings.Repeat("  ", indentLevel), coloredKey))
-			builder.WriteString(RenderStruct(field.Interface(), keyWidth, indentLevel+1))
-		case reflect.Slice:
-			builder.WriteString(fmt.Sprintf("%s%s\n", strings.Repeat("  ", indentLevel), coloredKey))
-			for j := 0; j < field.Len(); j++ {
-				element := field.Index(j)
-				if element.Kind() == reflect.Struct || element.Kind() == reflect.Ptr {
-					builder.WriteString(fmt.Sprintf("%s- \n", strings.Repeat("  ", indentLevel+1)))
-					builder.WriteString(RenderStruct(element.Interface(), keyWidth, indentLevel+2, blacklist...))
-				} else {
-					builder.WriteString(fmt.Sprintf("%s- %s\n", strings.Repeat("  ", indentLevel+1), GreenFg.Render(fmt.Sprintf("%v", element.Interface()))))
-				}
+
+			key := fieldType.Name
+			// 检查字段是否在黑名单中
+			if _, ok := blacklistMap[key]; ok {
+				continue
 			}
-		case reflect.Map:
-			builder.WriteString(fmt.Sprintf("%s%s\n", strings.Repeat("  ", indentLevel), coloredKey))
-			for _, mapKey := range field.MapKeys() {
-				mapValue := field.MapIndex(mapKey)
-				coloredMapKey := BlueFg.Render(fmt.Sprintf("%v", mapKey.Interface()))
-				if mapValue.Kind() == reflect.Struct || mapValue.Kind() == reflect.Ptr {
-					builder.WriteString(fmt.Sprintf("%s%s \n", strings.Repeat("  ", indentLevel+1), coloredMapKey))
-					builder.WriteString(RenderStruct(mapValue.Interface(), keyWidth, indentLevel+2, blacklist...))
-				} else {
-					builder.WriteString(fmt.Sprintf("%s%s %s\n", strings.Repeat("  ", indentLevel+1), coloredMapKey, GreenFg.Render(fmt.Sprintf("%v", mapValue.Interface()))))
-				}
-			}
-		case reflect.Interface:
-			if !field.IsNil() {
+
+			// 格式化字段名和字段值
+			coloredKey := BlueFg.Render(fmt.Sprintf("%-*s", keyWidth, key+":"))
+			valueStr := fmt.Sprintf("%v", field.Interface())
+			coloredValue := GreenFg.Render(valueStr)
+
+			switch field.Kind() {
+			case reflect.Struct:
+				// 处理结构体字段，递归调用 RenderStruct
 				builder.WriteString(fmt.Sprintf("%s%s\n", strings.Repeat("  ", indentLevel), coloredKey))
-				builder.WriteString(RenderStruct(field.Interface(), keyWidth, indentLevel+1, blacklist...))
-			} else {
-				builder.WriteString(fmt.Sprintf("%s%s <nil>\n", strings.Repeat("  ", indentLevel), coloredKey))
+				builder.WriteString(RenderStruct(field.Addr().Interface(), keyWidth, indentLevel+1))
+			case reflect.Ptr:
+				// 处理指针字段，递归调用 RenderStruct
+				if field.IsNil() {
+					field.Set(reflect.New(field.Type().Elem()))
+				}
+				builder.WriteString(fmt.Sprintf("%s%s\n", strings.Repeat("  ", indentLevel), coloredKey))
+				builder.WriteString(RenderStruct(field.Interface(), keyWidth, indentLevel+1))
+			case reflect.Slice:
+				// 处理切片字段
+				builder.WriteString(fmt.Sprintf("%s%s\n", strings.Repeat("  ", indentLevel), coloredKey))
+				for j := 0; j < field.Len(); j++ {
+					element := field.Index(j)
+					// 如果元素是结构体或指针，递归调用 RenderStruct
+					if element.Kind() == reflect.Struct || element.Kind() == reflect.Ptr {
+						builder.WriteString(fmt.Sprintf("%s- \n", strings.Repeat("  ", indentLevel+1)))
+						builder.WriteString(RenderStruct(element.Interface(), keyWidth, indentLevel+2, blacklist...))
+					} else {
+						// 否则直接输出切片中的元素值
+						builder.WriteString(fmt.Sprintf("%s- %s\n", strings.Repeat("  ", indentLevel+1), GreenFg.Render(fmt.Sprintf("%v", element.Interface()))))
+					}
+				}
+			case reflect.Map:
+				// 处理映射类型字段
+				builder.WriteString(fmt.Sprintf("%s%s\n", strings.Repeat("  ", indentLevel), coloredKey))
+				for _, mapKey := range field.MapKeys() {
+					mapValue := field.MapIndex(mapKey)
+					coloredMapKey := BlueFg.Render(fmt.Sprintf("%v", mapKey.Interface()))
+					if mapValue.Kind() == reflect.Struct || mapValue.Kind() == reflect.Ptr {
+						builder.WriteString(fmt.Sprintf("%s%s \n", strings.Repeat("  ", indentLevel+1), coloredMapKey))
+						builder.WriteString(RenderStruct(mapValue.Interface(), keyWidth, indentLevel+2, blacklist...))
+					} else {
+						builder.WriteString(fmt.Sprintf("%s%s %s\n", strings.Repeat("  ", indentLevel+1), coloredMapKey, GreenFg.Render(fmt.Sprintf("%v", mapValue.Interface()))))
+					}
+				}
+			case reflect.Interface:
+				// 处理接口类型字段
+				if !field.IsNil() {
+					builder.WriteString(fmt.Sprintf("%s%s\n", strings.Repeat("  ", indentLevel), coloredKey))
+					builder.WriteString(RenderStruct(field.Interface(), keyWidth, indentLevel+1, blacklist...))
+				} else {
+					builder.WriteString(fmt.Sprintf("%s%s <nil>\n", strings.Repeat("  ", indentLevel), coloredKey))
+				}
+			default:
+				// 处理其他类型的字段
+				builder.WriteString(fmt.Sprintf("%s%s %s\n", strings.Repeat("  ", indentLevel), coloredKey, coloredValue))
 			}
-		default:
-			builder.WriteString(fmt.Sprintf("%s%s %s\n", strings.Repeat("  ", indentLevel), coloredKey, coloredValue))
+		}
+	} else if v.Kind() == reflect.Slice {
+		// 如果是切片类型，遍历切片中的元素
+		for i := 0; i < v.Len(); i++ {
+			element := v.Index(i)
+			// 递归处理切片中的每个元素
+			if element.Kind() == reflect.Struct || element.Kind() == reflect.Ptr {
+				builder.WriteString(fmt.Sprintf("%s- \n", strings.Repeat("  ", indentLevel)))
+				builder.WriteString(RenderStruct(element.Interface(), keyWidth, indentLevel+1, blacklist...))
+			} else {
+				// 否则直接输出元素值
+				builder.WriteString(fmt.Sprintf("%s- %s\n", strings.Repeat("  ", indentLevel), GreenFg.Render(fmt.Sprintf("%v", element.Interface()))))
+			}
 		}
 	}
 

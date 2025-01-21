@@ -113,6 +113,9 @@ func RenderStruct(stru interface{}, keyWidth int, indentLevel int, blacklist ...
 	if v.Kind() == reflect.Ptr {
 		v = v.Elem()
 	}
+	if !v.IsValid() {
+		return ""
+	}
 	t := v.Type()
 
 	blacklistMap := make(map[string]struct{})
@@ -148,9 +151,10 @@ func RenderStruct(stru interface{}, keyWidth int, indentLevel int, blacklist ...
 				builder.WriteString(fmt.Sprintf("%s%s\n", strings.Repeat("  ", indentLevel), coloredKey))
 				builder.WriteString(RenderStruct(field.Addr().Interface(), keyWidth, indentLevel+1))
 			case reflect.Ptr:
-				// 处理指针字段，递归调用 RenderStruct
 				if field.IsNil() {
 					field.Set(reflect.New(field.Type().Elem()))
+					builder.WriteString(fmt.Sprintf("%s%s <nil>\n", strings.Repeat("  ", indentLevel), coloredKey))
+					continue
 				}
 				builder.WriteString(fmt.Sprintf("%s%s\n", strings.Repeat("  ", indentLevel), coloredKey))
 				builder.WriteString(RenderStruct(field.Interface(), keyWidth, indentLevel+1))
@@ -186,6 +190,7 @@ func RenderStruct(stru interface{}, keyWidth int, indentLevel int, blacklist ...
 				if !field.IsNil() {
 					builder.WriteString(fmt.Sprintf("%s%s\n", strings.Repeat("  ", indentLevel), coloredKey))
 					builder.WriteString(RenderStruct(field.Interface(), keyWidth, indentLevel+1, blacklist...))
+					continue
 				} else {
 					builder.WriteString(fmt.Sprintf("%s%s <nil>\n", strings.Repeat("  ", indentLevel), coloredKey))
 				}

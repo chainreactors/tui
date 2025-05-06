@@ -82,6 +82,9 @@ func (t *TableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return t, tea.Quit
 		case tea.KeyEnter:
 			t.selected = t.GetHighlightedRow()
+			if t.handle == nil {
+				return t, tea.Quit
+			}
 			t.handleSelectedRow()
 			return t, tea.Quit
 		}

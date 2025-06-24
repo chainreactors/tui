@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"os"
 )
 
 func NewInput(title string) *InputModel {
@@ -64,4 +65,16 @@ func (m InputModel) View() string {
 func (m InputModel) SetHandler(handler func()) *InputModel {
 	m.handler = handler
 	return &m
+}
+
+func (m InputModel) Run() error {
+	p := tea.NewProgram(m)
+	_, err := p.Run()
+	if err != nil {
+		return err
+	}
+	fmt.Printf(HelpStyle("<Press enter to exit>\n"))
+	os.Stdin.Write([]byte("\n"))
+	ClearLines(1)
+	return nil
 }

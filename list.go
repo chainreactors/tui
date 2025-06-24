@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"fmt"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"os"
 )
 
 type ListModel struct {
@@ -62,4 +64,16 @@ func (m listModel) SetSpacing(i int) *listModel {
 func (m listModel) SetHeight(i int) *listModel {
 	m.list.SetHeight(i)
 	return &m
+}
+
+func (m listModel) Run() error {
+	p := tea.NewProgram(m)
+	_, err := p.Run()
+	if err != nil {
+		return err
+	}
+	fmt.Printf(HelpStyle("<Press enter to exit>\n"))
+	os.Stdin.Write([]byte("\n"))
+	ClearLines(1)
+	return nil
 }

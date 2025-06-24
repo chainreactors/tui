@@ -4,8 +4,7 @@ import "github.com/chainreactors/tui"
 
 func main() {
 	newConfirm := tui.NewConfirm("test confirm")
-	newModel := tui.NewModel(newConfirm, nil, false, true)
-	err := newModel.Run()
+	err := newConfirm.Run()
 	if err != nil {
 		return
 	}

@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/evertras/bubble-table/table"
+	"os"
 )
 
 var (
@@ -39,10 +41,11 @@ func NewTable(columns []table.Column, isStatic bool) *TableModel {
 }
 
 type TableModel struct {
-	table          table.Model
-	Columns        []table.Column
-	Rows           []table.Row
-	AllRows        []table.Row
+	table   table.Model
+	Columns []table.Column
+	Rows    []table.Row
+	AllRows []table.Row
+	*bytes.Buffer
 	currentPage    int
 	totalPages     int
 	rowsPerPage    int
@@ -144,4 +147,16 @@ func (t *TableModel) SetAscSort(s string) {
 
 func (t *TableModel) SetDescSort(s string) {
 	t.table = t.table.SortByDesc(s)
+}
+
+func (t *TableModel) Run() error {
+	p := tea.NewProgram(t)
+	_, err := p.Run()
+	if err != nil {
+		return err
+	}
+	fmt.Printf(HelpStyle("<Press enter to exit>\n"))
+	os.Stdin.Write([]byte("\n"))
+	ClearLines(1)
+	return nil
 }

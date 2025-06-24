@@ -10,8 +10,7 @@ func main() {
 	newInput = newInput.SetHandler(func() {
 		fmt.Println(newInput.TextInput.Value())
 	})
-	newModel := tui.NewModel(newInput, nil, false, true)
-	err := newModel.Run()
+	err := newInput.Run()
 	if err != nil {
 		return
 	}

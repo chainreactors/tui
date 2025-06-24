@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"fmt"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"os"
 )
 
 type HelpModel struct {
@@ -28,11 +30,11 @@ func NewHelpModel(isShortHelp bool) HelpModel {
 	}
 }
 
-func (m HelpModel) Init() tea.Cmd {
+func (m *HelpModel) Init() tea.Cmd {
 	return nil
 }
 
-func (m HelpModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *HelpModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		// If we set a width on the Help menu it can gracefully truncate
@@ -64,7 +66,7 @@ func (m HelpModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m HelpModel) View() string {
+func (m *HelpModel) View() string {
 	var helpView string
 	if m.Quitting {
 		helpView = ""
@@ -74,6 +76,18 @@ func (m HelpModel) View() string {
 	return "\n" + helpView + "\n"
 }
 
-func (m HelpModel) SetKeys(keys DefaultKeyMap) {
+func (m *HelpModel) SetKeys(keys DefaultKeyMap) {
 	m.Keys = keys
+}
+
+func (m *HelpModel) Run() error {
+	p := tea.NewProgram(m)
+	_, err := p.Run()
+	if err != nil {
+		return err
+	}
+	fmt.Printf(HelpStyle("<Press enter to exit>\n"))
+	os.Stdin.Write([]byte("\n"))
+	ClearLines(1)
+	return nil
 }

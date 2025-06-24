@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
+	"os"
 	"strings"
 )
 
@@ -78,4 +80,16 @@ func (m *SelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m *SelectModel) Run() error {
+	p := tea.NewProgram(m)
+	_, err := p.Run()
+	if err != nil {
+		return err
+	}
+	fmt.Printf(HelpStyle("<Press enter to exit>\n"))
+	os.Stdin.Write([]byte("\n"))
+	ClearLines(1)
+	return nil
 }

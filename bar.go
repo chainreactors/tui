@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"bytes"
+	"fmt"
 	"github.com/charmbracelet/bubbles/progress"
 	tea "github.com/charmbracelet/bubbletea"
+	"os"
 	"strings"
 	"time"
 )
@@ -35,7 +38,8 @@ func finalPause() tea.Cmd {
 type BarModel struct {
 	Model           progress.Model
 	progressPercent float64
-	err             error
+	*bytes.Buffer
+	err error
 }
 
 func (m *BarModel) Init() tea.Cmd {
@@ -91,11 +95,14 @@ func (m *BarModel) View() string {
 	if m.err != nil {
 		return m.err.Error()
 	}
-
+	var s strings.Builder
 	pad := strings.Repeat(" ", padding)
-	return "\n" +
+	s.WriteString("\n" +
 		pad + m.Model.ViewAs(m.progressPercent) + "\n\n" +
-		pad + HelpStyle("Press any key to quit")
+		pad + HelpStyle("Press any key to quit"))
+	s.WriteString(m.Buffer.String())
+
+	return s.String()
 }
 
 func setPercentMsg(percent float64) tea.Cmd {
@@ -106,6 +113,18 @@ func setPercentMsg(percent float64) tea.Cmd {
 
 func (m *BarModel) SetProgressPercent(percent float64) {
 	m.progressPercent = percent
+}
+
+func (m *BarModel) Run() error {
+	p := tea.NewProgram(m)
+	_, err := p.Run()
+	if err != nil {
+		return err
+	}
+	fmt.Printf(HelpStyle("<Press enter to exit>\n"))
+	os.Stdin.Write([]byte("\n"))
+	ClearLines(1)
+	return nil
 }
 
 //func (m *BarModel) SetOnProgress(p *tea.Program) {

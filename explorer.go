@@ -131,12 +131,12 @@ func (m TreeModel) SetKeyBinding(key string, action KeyActionFunc) TreeModel {
 	return m
 }
 
-func (m TreeModel) Run() {
+func (m TreeModel) Run() error {
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
-		fmt.Println("Error running program:", err)
+		return err
 	}
-
+	return nil
 }
 func NewTreeModel(root TreeNode, displayFunc DisplayFunc, treeType int) (TreeModel, error) {
 	switch treeType {

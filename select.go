@@ -69,6 +69,8 @@ func (m *SelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.SelectedItem >= 0 && m.SelectedItem < len(m.Choices) {
 				m.Selected = m.Choices[m.SelectedItem]
 			}
+			m.Choices = []string{m.Selected}
+			m.SelectedItem = 0
 			return m, tea.Quit
 		case m.NewKey.Type:
 			newModel, _ := m.KeyHandler(m, msg)
@@ -88,8 +90,9 @@ func (m *SelectModel) Run() error {
 	if err != nil {
 		return err
 	}
+	fmt.Printf("[x]%s\n", m.Selected)
 	fmt.Printf(HelpStyle("<Press enter to exit>\n"))
 	os.Stdin.Write([]byte("\n"))
-	ClearLines(1)
+	//ClearLines(1)
 	return nil
 }

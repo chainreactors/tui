@@ -100,8 +100,39 @@ func NewKVTable(data map[string]interface{}) *TableModel {
 	return t
 }
 
+func NewOrderedKVTable(data map[string]interface{}, orderedKeys []string) *TableModel {
+	// 定义列
+	columns := []table.Column{
+		table.NewColumn("key", "Key", 20),
+		table.NewColumn("value", "Value", 40),
+	}
+
+	// 创建表格模型
+	t := NewTable(columns, true)
+	t.table = t.table.
+		WithBaseStyle(kvTableStyle).
+		WithHeaderVisibility(false)
+
+	// 转换数据为表格行，按指定的键顺序
+	var rows []table.Row
+	for _, k := range orderedKeys {
+		if v, exists := data[k]; exists {
+			valueStyle := getValueStyle(v)
+			row := table.NewRow(table.RowData{
+				"key":   keyStyle.Render(k),
+				"value": valueStyle.Render(formatValue(v)),
+			})
+			rows = append(rows, row)
+		}
+	}
+
+	// 设置行数据
+	t.SetRows(rows)
+	return t
+}
+
 // RenderKV 直接渲染 key-value 数据，渲染完立即返回
-func RenderKV(data map[string]interface{}) {
-	table := NewKVTable(data)
+func RenderKV(data map[string]interface{}, orderedKeys []string) {
+	table := NewOrderedKVTable(data, orderedKeys)
 	fmt.Println(table.View())
 }

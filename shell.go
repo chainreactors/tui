@@ -853,3 +853,10 @@ func (s *ShellModel) GetSelectedText() string {
 func (s *ShellModel) IsSelecting() bool {
 	return s.selecting
 }
+
+func (s *ShellModel) Run() error {
+	program := tea.NewProgram(s, tea.WithAltScreen(), tea.WithMouseCellMotion())
+
+	_, err := program.Run()
+	return err
+}

@@ -404,6 +404,21 @@ func (s *ShellModel) AddOutput(text string) {
 // stripANSI 移除 ANSI 控制序列（颜色、光标等），避免错位
 var ansiRegexp = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z@-~]`)
 
+var cursorPattern = regexp.MustCompile(`(\x1b|\\u\{1b\})\[\d+;\d+H`)
+
+var promptPatterns = []struct {
+	re   *regexp.Regexp
+	desc string
+}{
+	{regexp.MustCompile(`([A-Z]:\\[^>]*>)\s*$`), "Windows drive prompt"},
+	{regexp.MustCompile(`(PS\s+[A-Z]:\\[^>]*>\s*)$`), "PowerShell prompt"},
+	{regexp.MustCompile(`(.+@.+:\S*[\$#>])\s*$`), "user@host:path prompt"},
+	{regexp.MustCompile(`(.+:\S*[\$#>])\s*$`), "path prompt"},
+	{regexp.MustCompile(`([\$#>])\s*$`), "simple prompt"},
+	{regexp.MustCompile(`(.+[\$#>])\s*$`), "general prompt"},
+	{regexp.MustCompile(`(.+λ)\s*$`), "lambda prompt"},
+}
+
 func stripANSI(s string) string {
 	return ansiRegexp.ReplaceAllString(s, "")
 }
@@ -440,7 +455,6 @@ func (s *ShellModel) ApplyCompletionText(text string) {
 	//cleanText := stripANSI(text)
 	// 查找最后一个光标位置移动后的文本
 	// 光标移动格式: \u{1b}[行;列H 或 \x1b[行;列H
-	cursorPattern := regexp.MustCompile(`(\x1b|\\u\{1b\})\[\d+;\d+H`)
 	matches := cursorPattern.FindAllStringIndex(text, -1)
 
 	if len(matches) > 0 {
@@ -495,26 +509,8 @@ func (s *ShellModel) extractPromptFromLine(line string) string {
 	}
 
 	// 常见的prompt模式，按优先级排序
-	patterns := []struct {
-		regex string
-		desc  string
-	}{
-		{`([A-Z]:\\[^>]*>)\s*$`, "Windows drive prompt"},   // 提取最后的 C:\path>
-		{`(PS\s+[A-Z]:\\[^>]*>\s*)$`, "PowerShell prompt"}, // 提取最后的 PS C:\path>
-		{`(.+@.+:\S*[\$#>])\s*$`, "user@host:path prompt"}, // 提取最后的 user@host:path$
-		{`(.+:\S*[\$#>])\s*$`, "path prompt"},              // 提取最后的 ~/path$
-		{`([\$#>])\s*$`, "simple prompt"},                  // 提取最后的 $ # >
-		{`(.+[\$#>])\s*$`, "general prompt"},               // 提取最后的任何以 $ # > 结尾的
-		{`(.+λ)\s*$`, "lambda prompt"},                     // 提取最后的 lambda prompt
-	}
-
-	for _, pattern := range patterns {
-		re, err := regexp.Compile(pattern.regex)
-		if err != nil {
-			continue
-		}
-
-		matches := re.FindStringSubmatch(line)
+	for _, pattern := range promptPatterns {
+		matches := pattern.re.FindStringSubmatch(line)
 		if len(matches) > 1 {
 			// 返回捕获的组（提取的prompt部分）
 			prompt := strings.TrimSpace(matches[1])

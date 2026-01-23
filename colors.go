@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 )
 
 var (
@@ -59,6 +60,18 @@ var (
 	PinkBg      = lipgloss.NewStyle().Background(Pink)
 )
 var (
+	darkBgOnce  sync.Once
+	darkBgValue bool
+)
+
+func hasDarkBackground() bool {
+	darkBgOnce.Do(func() {
+		darkBgValue = termenv.HasDarkBackground()
+	})
+	return darkBgValue
+}
+
+var (
 	Reset      = output.Reset
 	Clear      = output.ClearLine
 	UpN        = output.CursorPrevLine
@@ -73,7 +86,7 @@ var (
 // TODO: Adapt term color by term(fork grumble ColorTableFg)
 func AdaptTermColor(prompt string) string {
 	var color string
-	if termenv.HasDarkBackground() {
+	if hasDarkBackground() {
 		color = fmt.Sprintf("\033[37m%s> \033[0m", prompt)
 	} else {
 		color = fmt.Sprintf("\033[30m%s> \033[0m", prompt)
@@ -84,7 +97,7 @@ func AdaptTermColor(prompt string) string {
 func AdaptSessionColor(prePrompt, sId string) string {
 	var sessionPrompt string
 	runes := []rune(sId)
-	if termenv.HasDarkBackground() {
+	if hasDarkBackground() {
 		sessionPrompt = fmt.Sprintf("\033[37m%s [%s]> \033[0m", prePrompt, string(runes))
 	} else {
 		sessionPrompt = fmt.Sprintf("\033[30m%s [%s]> \033[0m", prePrompt, string(runes))
@@ -95,7 +108,7 @@ func AdaptSessionColor(prePrompt, sId string) string {
 func NewSessionColor(prePrompt, sId string) string {
 	var sessionPrompt string
 	runes := []rune(sId)
-	if termenv.HasDarkBackground() {
+	if hasDarkBackground() {
 		sessionPrompt = fmt.Sprintf("%s [%s]> ", DefaultGroupStyle.Render(prePrompt), DefaultNameStyle.Render(string(runes)))
 	} else {
 		sessionPrompt = fmt.Sprintf("%s [%s]> ", DefaultGroupStyle.Render(prePrompt), DefaultNameStyle.Render(string(runes)))

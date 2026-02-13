@@ -1,6 +1,6 @@
 module github.com/chainreactors/tui
 
-go 1.20
+go 1.21
 
 require (
 	github.com/atotto/clipboard v0.1.4
@@ -9,6 +9,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.0.0
 	github.com/evertras/bubble-table v0.19.2
 	github.com/muesli/termenv v0.16.0
+	golang.org/x/term v0.0.0-20210927222741-03fcf44c2211
 )
 
 require (

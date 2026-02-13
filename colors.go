@@ -2,17 +2,18 @@ package tui
 
 import (
 	"fmt"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
 	"os"
 	"reflect"
 	"strings"
 	"sync"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 var (
-	output    = termenv.NewOutput(os.Stdout)
-	profile   = termenv.ColorProfile()
+	output = termenv.NewOutput(os.Stdout)
+	//profile   = termenv.ColorProfile()
 	Normal    = lipgloss.NewStyle().String()
 	Bold      = lipgloss.NewStyle().Bold(true).String()
 	Underline = lipgloss.NewStyle().Underline(true).String()
@@ -64,7 +65,7 @@ var (
 	darkBgValue bool
 )
 
-func hasDarkBackground() bool {
+func HasDarkBackground() bool {
 	darkBgOnce.Do(func() {
 		darkBgValue = termenv.HasDarkBackground()
 	})
@@ -86,7 +87,7 @@ var (
 // TODO: Adapt term color by term(fork grumble ColorTableFg)
 func AdaptTermColor(prompt string) string {
 	var color string
-	if hasDarkBackground() {
+	if HasDarkBackground() {
 		color = fmt.Sprintf("\033[37m%s> \033[0m", prompt)
 	} else {
 		color = fmt.Sprintf("\033[30m%s> \033[0m", prompt)
@@ -97,7 +98,7 @@ func AdaptTermColor(prompt string) string {
 func AdaptSessionColor(prePrompt, sId string) string {
 	var sessionPrompt string
 	runes := []rune(sId)
-	if hasDarkBackground() {
+	if HasDarkBackground() {
 		sessionPrompt = fmt.Sprintf("\033[37m%s [%s]> \033[0m", prePrompt, string(runes))
 	} else {
 		sessionPrompt = fmt.Sprintf("\033[30m%s [%s]> \033[0m", prePrompt, string(runes))
@@ -108,7 +109,7 @@ func AdaptSessionColor(prePrompt, sId string) string {
 func NewSessionColor(prePrompt, sId string) string {
 	var sessionPrompt string
 	runes := []rune(sId)
-	if hasDarkBackground() {
+	if HasDarkBackground() {
 		sessionPrompt = fmt.Sprintf("%s [%s]> ", DefaultGroupStyle.Render(prePrompt), DefaultNameStyle.Render(string(runes)))
 	} else {
 		sessionPrompt = fmt.Sprintf("%s [%s]> ", DefaultGroupStyle.Render(prePrompt), DefaultNameStyle.Render(string(runes)))

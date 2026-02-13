@@ -3,15 +3,15 @@ module github.com/chainreactors/tui
 go 1.20
 
 require (
+	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/bubbles v0.20.0
 	github.com/charmbracelet/bubbletea v1.3.4
 	github.com/charmbracelet/lipgloss v1.0.0
-	github.com/evertras/bubble-table v0.17.2
+	github.com/evertras/bubble-table v0.19.2
 	github.com/muesli/termenv v0.16.0
 )
 
 require (
-	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/charmbracelet/harmonica v0.2.0 // indirect
 	github.com/charmbracelet/x/ansi v0.8.0 // indirect

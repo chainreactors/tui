@@ -15,8 +15,8 @@ var (
 	HeaderStyle = lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
 	SelectStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("229")).
-			Background(lipgloss.Color("57")).
+			Foreground(lipgloss.Color("255")).
+			Background(lipgloss.Color("24")).
 			Bold(false)
 	HelpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#626262")).Render
 )
@@ -24,8 +24,8 @@ var (
 // Default Styles
 var (
 	DefaultTableStyle = table.Styles{
-		Selected: table.DefaultStyles().Selected.Foreground(lipgloss.Color("229")).
-			Background(lipgloss.Color("57")).
+		Selected: table.DefaultStyles().Selected.Foreground(lipgloss.Color("255")).
+			Background(lipgloss.Color("24")).
 			Bold(false),
 		Header: table.DefaultStyles().Header.BorderStyle(lipgloss.NormalBorder()).
 			BorderForeground(lipgloss.Color("240")).

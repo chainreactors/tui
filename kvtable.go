@@ -18,7 +18,31 @@ var (
 			Foreground(Blue).
 			Bold(true).
 			PaddingRight(2)
+
+	// kvBorder defines a complete frame for KV rendering.
+	kvBorder = table.Border{
+		Top:    lipgloss.RoundedBorder().Top,
+		Bottom: lipgloss.RoundedBorder().Bottom,
+		Left:   lipgloss.RoundedBorder().Left,
+		Right:  lipgloss.RoundedBorder().Right,
+
+		TopLeft:     lipgloss.RoundedBorder().TopLeft,
+		TopRight:    lipgloss.RoundedBorder().TopRight,
+		BottomLeft:  lipgloss.RoundedBorder().BottomLeft,
+		BottomRight: lipgloss.RoundedBorder().BottomRight,
+
+		TopJunction:    "┬",
+		BottomJunction: "┴",
+		LeftJunction:   "├",
+		RightJunction:  "┤",
+		InnerJunction:  "┼",
+		InnerDivider:   "│",
+	}
 )
+
+type KVOptions struct {
+	ShowHeader bool
+}
 
 // getValueStyle 根据值的类型返回对应的样式
 func getValueStyle(v interface{}) lipgloss.Style {
@@ -72,6 +96,10 @@ func formatValue(v interface{}) string {
 
 // NewKVTable 创建一个新的 key-value 表格
 func NewKVTable(data map[string]interface{}) *TableModel {
+	return NewKVTableWithOptions(data, KVOptions{})
+}
+
+func NewKVTableWithOptions(data map[string]interface{}, opts KVOptions) *TableModel {
 	// 定义列
 	columns := []table.Column{
 		table.NewColumn("key", "Key", 20),
@@ -82,7 +110,8 @@ func NewKVTable(data map[string]interface{}) *TableModel {
 	t := NewTable(columns, true)
 	t.table = t.table.
 		WithBaseStyle(kvTableStyle).
-		WithHeaderVisibility(false)
+		WithHeaderVisibility(opts.ShowHeader).
+		Border(kvBorder)
 
 	// 转换数据为表格行
 	var rows []table.Row
@@ -101,6 +130,10 @@ func NewKVTable(data map[string]interface{}) *TableModel {
 }
 
 func NewOrderedKVTable(data map[string]interface{}, orderedKeys []string) *TableModel {
+	return NewOrderedKVTableWithOptions(data, orderedKeys, KVOptions{})
+}
+
+func NewOrderedKVTableWithOptions(data map[string]interface{}, orderedKeys []string, opts KVOptions) *TableModel {
 	// 定义列
 	columns := []table.Column{
 		table.NewColumn("key", "Key", 20),
@@ -111,7 +144,8 @@ func NewOrderedKVTable(data map[string]interface{}, orderedKeys []string) *Table
 	t := NewTable(columns, true)
 	t.table = t.table.
 		WithBaseStyle(kvTableStyle).
-		WithHeaderVisibility(false)
+		WithHeaderVisibility(opts.ShowHeader).
+		Border(kvBorder)
 
 	// 转换数据为表格行，按指定的键顺序
 	var rows []table.Row
@@ -133,6 +167,10 @@ func NewOrderedKVTable(data map[string]interface{}, orderedKeys []string) *Table
 
 // RenderKV 直接渲染 key-value 数据，渲染完立即返回
 func RenderKV(data map[string]interface{}, orderedKeys []string) {
-	table := NewOrderedKVTable(data, orderedKeys)
+	RenderKVWithOptions(data, orderedKeys, KVOptions{})
+}
+
+func RenderKVWithOptions(data map[string]interface{}, orderedKeys []string, opts KVOptions) {
+	table := NewOrderedKVTableWithOptions(data, orderedKeys, opts)
 	fmt.Println(table.View())
 }

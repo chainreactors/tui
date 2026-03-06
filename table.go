@@ -67,6 +67,7 @@ func NewTable(columns []table.Column, isStatic bool) *TableModel {
 	t := &TableModel{
 		table:       newTable,
 		Columns:     columns,
+		Buffer:      new(bytes.Buffer),
 		rowsPerPage: 10,
 		isStatic:    isStatic,
 	}

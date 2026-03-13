@@ -107,14 +107,8 @@ func AdaptSessionColor(prePrompt, sId string) string {
 }
 
 func NewSessionColor(prePrompt, sId string) string {
-	var sessionPrompt string
 	runes := []rune(sId)
-	if HasDarkBackground() {
-		sessionPrompt = fmt.Sprintf("%s [%s]> ", DefaultGroupStyle.Render(prePrompt), DefaultNameStyle.Render(string(runes)))
-	} else {
-		sessionPrompt = fmt.Sprintf("%s [%s]> ", DefaultGroupStyle.Render(prePrompt), DefaultNameStyle.Render(string(runes)))
-	}
-	return sessionPrompt
+	return fmt.Sprintf("%s [%s]", DefaultGroupStyle.Render(prePrompt), DefaultNameStyle.Render(string(runes)))
 }
 
 func RendStructDefault(stru interface{}, blacklist ...string) string {

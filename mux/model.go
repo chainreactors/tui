@@ -132,15 +132,14 @@ func (m *Mux) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
 			return m.handleClick(msg.X, msg.Y)
 		}
-		// Forward scroll wheel as mouse escape sequences to the focused pane's PTY.
-		// Uses SGR (1006) mouse encoding: \x1b[<button;x;y;M/m
-		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
-			btn := 64 // wheel up
-			if msg.Button == tea.MouseButtonWheelDown {
-				btn = 65
+		// Scroll wheel: scroll the mux's own VT scrollback, not the child PTY.
+		if pane := m.focusedPane(); pane != nil {
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				pane.ScrollUp(3)
+			case tea.MouseButtonWheelDown:
+				pane.ScrollDown(3)
 			}
-			seq := fmt.Sprintf("\x1b[<%d;%d;%dM", btn, msg.X+1, msg.Y+1)
-			m.forwardBytes([]byte(seq))
 		}
 	}
 
@@ -221,6 +220,11 @@ func (m *Mux) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if len(msg.Runes) == 0 && byte(msg.Type) == m.prefixKey {
 		m.prefixMode = true
 		return m, nil
+	}
+
+	// Any keypress snaps back to live mode (exit scrollback).
+	if pane := m.focusedPane(); pane != nil && pane.IsScrolled() {
+		pane.ScrollDown(pane.scrollOffset)
 	}
 
 	// Forward input to the focused pane.
@@ -473,6 +477,13 @@ func (m *Mux) sidebarHitTest(y int) (hitZone, int) {
 		return hitSession, y - sessionStart
 	}
 	return hitNone, 0
+}
+
+func (m *Mux) focusedPane() *TermPane {
+	if m.activeTab >= len(m.tabs) {
+		return nil
+	}
+	return m.tabs[m.activeTab].FindPane(m.focusedID)
 }
 
 // --- Input forwarding ---

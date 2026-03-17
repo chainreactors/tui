@@ -43,6 +43,10 @@ type TermPane struct {
 
 	mu sync.RWMutex // protects vt access during concurrent read/render
 
+	// scrollOffset > 0 means we are viewing scrollback history.
+	// 0 = live (showing current screen), N = N lines scrolled up.
+	scrollOffset int
+
 	// MuxCmds receives commands from the child process via OSC title sequences.
 	// The mux model should drain this channel in its Update loop.
 	MuxCmds chan MuxCmd
@@ -161,12 +165,91 @@ func (tp *TermPane) WriteInput(p []byte) (int, error) {
 	return tp.pty.Write(p)
 }
 
+// ScrollUp scrolls the viewport up by n lines into the scrollback buffer.
+func (tp *TermPane) ScrollUp(n int) {
+	tp.mu.RLock()
+	maxOffset := tp.vt.ScrollbackLen()
+	tp.mu.RUnlock()
+	tp.scrollOffset += n
+	if tp.scrollOffset > maxOffset {
+		tp.scrollOffset = maxOffset
+	}
+}
+
+// ScrollDown scrolls the viewport down by n lines toward the live screen.
+func (tp *TermPane) ScrollDown(n int) {
+	tp.scrollOffset -= n
+	if tp.scrollOffset < 0 {
+		tp.scrollOffset = 0
+	}
+}
+
+// IsScrolled returns true when viewing scrollback (not live).
+func (tp *TermPane) IsScrolled() bool {
+	return tp.scrollOffset > 0
+}
+
 // Render returns the current screen content as an ANSI-encoded string.
-// This can be directly used in Bubble Tea's View().
+// When scrolled, it composites scrollback lines with screen lines.
 func (tp *TermPane) Render() string {
 	tp.mu.RLock()
 	defer tp.mu.RUnlock()
-	return tp.vt.Render()
+
+	if tp.scrollOffset == 0 {
+		return tp.vt.Render()
+	}
+
+	// Build view from scrollback + screen content.
+	// scrollOffset=N means show N lines from scrollback at the top,
+	// pushing the live screen down (bottom N lines of screen are hidden).
+	h := tp.vt.Height()
+	w := tp.vt.Width()
+	sbLen := tp.vt.ScrollbackLen()
+
+	if tp.scrollOffset > sbLen {
+		tp.scrollOffset = sbLen
+	}
+
+	var lines []string
+	// Lines from scrollback
+	sbStart := sbLen - tp.scrollOffset
+	sbLines := tp.scrollOffset
+	if sbLines > h {
+		sbLines = h
+		sbStart = sbLen - h
+	}
+	for y := sbStart; y < sbStart+sbLines && y < sbLen; y++ {
+		line := ""
+		for x := 0; x < w; x++ {
+			cell := tp.vt.ScrollbackCellAt(x, y)
+			if cell != nil && cell.Content != "" {
+				line += cell.Content
+			} else {
+				line += " "
+			}
+		}
+		lines = append(lines, line)
+	}
+	// Fill remaining with live screen lines (from top)
+	screenLines := h - len(lines)
+	for y := 0; y < screenLines; y++ {
+		cell := tp.vt.CellAt(0, y)
+		_ = cell
+		// Use Render for the visible portion — but we can't slice Render().
+		// Fallback: read cells directly for the remaining lines.
+		line := ""
+		for x := 0; x < w; x++ {
+			c := tp.vt.CellAt(x, y)
+			if c != nil && c.Content != "" {
+				line += c.Content
+			} else {
+				line += " "
+			}
+		}
+		lines = append(lines, line)
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 // Resize changes the pane dimensions, propagating to both PTY and VT emulator.

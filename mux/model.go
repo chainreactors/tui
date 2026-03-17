@@ -128,6 +128,13 @@ func (m *Mux) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
 			return m.handleClick(msg.X, msg.Y)
 		}
+		// Forward scroll wheel to the focused pane's PTY.
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.forwardBytes([]byte{0x1b, '[', 'A'}) // cursor up
+		case tea.MouseButtonWheelDown:
+			m.forwardBytes([]byte{0x1b, '[', 'B'}) // cursor down
+		}
 	}
 
 	return m, nil

@@ -118,7 +118,11 @@ func (m *Mux) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
+		m.reapDeadPanes()
 		m.drainMuxCmds()
+		if m.quitting {
+			return m, tea.Quit
+		}
 		return m, m.tickCmd()
 
 	case tea.KeyMsg:
@@ -128,12 +132,15 @@ func (m *Mux) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
 			return m.handleClick(msg.X, msg.Y)
 		}
-		// Forward scroll wheel to the focused pane's PTY.
-		switch msg.Button {
-		case tea.MouseButtonWheelUp:
-			m.forwardBytes([]byte{0x1b, '[', 'A'}) // cursor up
-		case tea.MouseButtonWheelDown:
-			m.forwardBytes([]byte{0x1b, '[', 'B'}) // cursor down
+		// Forward scroll wheel as mouse escape sequences to the focused pane's PTY.
+		// Uses SGR (1006) mouse encoding: \x1b[<button;x;y;M/m
+		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
+			btn := 64 // wheel up
+			if msg.Button == tea.MouseButtonWheelDown {
+				btn = 65
+			}
+			seq := fmt.Sprintf("\x1b[<%d;%d;%dM", btn, msg.X+1, msg.Y+1)
+			m.forwardBytes([]byte(seq))
 		}
 	}
 
@@ -595,6 +602,39 @@ func (m *Mux) openPaneList() {
 	})
 	m.picker.Hint = "Enter: focus  Esc: cancel"
 	m.overlayMode = overlayPaneList
+}
+
+// reapDeadPanes removes panes whose subprocess has exited.
+// If the active pane dies, focus moves to the next live pane.
+// If all panes in a tab die, the tab is removed.
+func (m *Mux) reapDeadPanes() {
+	changed := false
+	for i := len(m.tabs) - 1; i >= 0; i-- {
+		tab := m.tabs[i]
+		for _, p := range tab.Panes() {
+			if !p.IsDead() {
+				continue
+			}
+			p.Close()
+			if tab.IsLeaf() {
+				m.tabs = append(m.tabs[:i], m.tabs[i+1:]...)
+			} else {
+				tab.Remove(p.ID())
+			}
+			changed = true
+		}
+	}
+	if !changed {
+		return
+	}
+	if len(m.tabs) == 0 {
+		m.quitting = true
+		return
+	}
+	if m.activeTab >= len(m.tabs) {
+		m.activeTab = len(m.tabs) - 1
+	}
+	m.focusFirst()
 }
 
 // drainMuxCmds processes any pending OSC commands from child panes.

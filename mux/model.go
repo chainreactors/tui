@@ -123,6 +123,11 @@ func (m *Mux) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+
+	case tea.MouseMsg:
+		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
+			return m.handleClick(msg.X, msg.Y)
+		}
 	}
 
 	return m, nil
@@ -406,6 +411,54 @@ func (m *Mux) blurFocused() {
 			return
 		}
 	}
+}
+
+// --- Mouse handling ---
+
+type hitZone int
+
+const (
+	hitNone hitZone = iota
+	hitConsole
+	hitSession
+)
+
+func (m *Mux) handleClick(x, y int) (tea.Model, tea.Cmd) {
+	if m.sidebarWidth <= 0 || x >= m.sidebarWidth {
+		return m, nil
+	}
+	zone, index := m.sidebarHitTest(y)
+	switch zone {
+	case hitConsole:
+		m.switchTab(index)
+	case hitSession:
+		if index < len(m.sidebarState.Sessions) {
+			s := m.sidebarState.Sessions[index]
+			m.handleMuxCmd(MuxCmd{Action: "MuxOpen", Arg: s.ID})
+		}
+	}
+	return m, nil
+}
+
+// sidebarHitTest maps a Y coordinate to a sidebar zone and index.
+// Layout: title(0) status(1) sep(2) header(3) consoles... sep sessions...
+func (m *Mux) sidebarHitTest(y int) (hitZone, int) {
+	consoleStart := 4
+	consoleCount := 0
+	for _, tab := range m.tabs {
+		consoleCount += len(tab.Panes())
+	}
+
+	// +1 sep +1 header before sessions
+	sessionStart := consoleStart + consoleCount + 2
+
+	if y >= consoleStart && y < consoleStart+consoleCount {
+		return hitConsole, y - consoleStart
+	}
+	if len(m.sidebarState.Sessions) > 0 && y >= sessionStart {
+		return hitSession, y - sessionStart
+	}
+	return hitNone, 0
 }
 
 // --- Input forwarding ---

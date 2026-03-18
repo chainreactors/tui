@@ -2,6 +2,7 @@ package mux
 
 import (
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -37,6 +38,8 @@ type Mux struct {
 	prefixMode bool
 	prefixKey  byte
 	keyMap     map[byte]MuxAction
+
+	mouseEnabled bool // when false, mouse events pass through to the terminal
 
 	width, height   int
 	sidebarWidth    int
@@ -97,6 +100,7 @@ func New(opts ...Option) *Mux {
 	m := &Mux{
 		prefixKey:       0x02, // Ctrl+B
 		keyMap:          DefaultKeyMap,
+		mouseEnabled:    true,
 		sidebarWidth:    20,
 		refreshInterval: 50 * time.Millisecond,
 		width:           80,
@@ -173,6 +177,9 @@ func (m *Mux) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case tea.MouseMsg:
+		if !m.mouseEnabled {
+			return m, nil
+		}
 		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
 			return m.handleClick(msg.X, msg.Y)
 		}
@@ -217,7 +224,7 @@ func (m *Mux) View() string {
 	}
 
 	// Render status bar.
-	bar := renderStatusBar(m.tabs, m.activeTab, m.focusedID, m.prefixMode, m.width)
+	bar := renderStatusBar(m.tabs, m.activeTab, m.focusedID, m.prefixMode, m.mouseEnabled, m.width)
 
 	view := lipgloss.JoinVertical(lipgloss.Left, content, bar)
 
@@ -334,6 +341,15 @@ func (m *Mux) execAction(action MuxAction, msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		m.openPaneList()
 	case ActionHelp:
 		m.overlayMode = overlayHelp
+	case ActionToggleMouse:
+		m.mouseEnabled = !m.mouseEnabled
+		if m.mouseEnabled {
+			// Re-enable mouse cell motion + SGR mode.
+			os.Stdout.WriteString("\x1b[?1002h\x1b[?1006h")
+		} else {
+			// Disable mouse reporting so the terminal handles text selection.
+			os.Stdout.WriteString("\x1b[?1002l\x1b[?1006l")
+		}
 	case ActionQuit:
 		m.quitting = true
 		return m, tea.Quit

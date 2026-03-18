@@ -33,7 +33,7 @@ var (
 )
 
 // renderStatusBar produces the bottom status bar showing tabs and mode info.
-func renderStatusBar(tabs []*LayoutNode, activeTab int, focusedID int, prefixMode bool, width int) string {
+func renderStatusBar(tabs []*LayoutNode, activeTab int, focusedID int, prefixMode bool, mouseEnabled bool, width int) string {
 	var parts []string
 
 	for i, tab := range tabs {
@@ -57,7 +57,11 @@ func renderStatusBar(tabs []*LayoutNode, activeTab int, focusedID int, prefixMod
 
 	left := strings.Join(parts, "")
 
-	right := helpHint.Render("Ctrl+B ? help")
+	hint := "Ctrl+B ? help"
+	if !mouseEnabled {
+		hint = "mouse:off  Ctrl+B ? help"
+	}
+	right := helpHint.Render(hint)
 	if prefixMode {
 		right = prefixIndicator
 	}

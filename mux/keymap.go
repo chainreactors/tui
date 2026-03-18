@@ -16,6 +16,7 @@ const (
 	ActionSessionPicker           // open session picker overlay
 	ActionPaneList                // open pane navigator overlay
 	ActionScrollback              // enter scrollback mode
+	ActionToggleMouse             // toggle mouse capture on/off
 	ActionQuit                    // quit the multiplexer
 	ActionHelp                    // show help
 )
@@ -33,6 +34,7 @@ var DefaultKeyMap = map[byte]MuxAction{
 	's': ActionSessionPicker,
 	'w': ActionPaneList,
 	'[': ActionScrollback,
+	'm': ActionToggleMouse,
 	'q': ActionQuit,
 	'?': ActionHelp,
 }

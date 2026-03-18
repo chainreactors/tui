@@ -23,6 +23,7 @@ var helpContent = func() string {
 		"\n" +
 		h.Render("Other") + "\n" +
 		d.Render("  [          ") + dim.Render("scrollback mode") + "\n" +
+		d.Render("  m          ") + dim.Render("toggle mouse capture") + "\n" +
 		d.Render("  ?          ") + dim.Render("this help") + "\n" +
 		d.Render("  q          ") + dim.Render("quit multiplexer") + "\n" +
 		"\n" +

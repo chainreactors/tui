@@ -442,9 +442,7 @@ func overlayCursorInLine(line string, cx int) string {
 	}
 
 	// Cursor past end of visible content: pad with spaces to reach the
-	// correct column, then show a reverse-video block. VT Render() trims
-	// trailing whitespace, so the cursor column is often beyond the last
-	// visible character.
+	// correct column, then show a reverse-video block.
 	gap := cx - visible
 	if gap > 0 {
 		return line + strings.Repeat(" ", gap) + "\x1b[7m \x1b[27m"

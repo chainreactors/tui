@@ -41,11 +41,20 @@ type TermPane struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mu sync.RWMutex // protects vt access during concurrent read/render
+	mu sync.Mutex // serialises all vt reads and writes
+
+	// renderCache holds the last successfully rendered screen as a string.
+	// Updated by readLoop after each vt.Write; read by Render without locking
+	// so that View() in the Bubble Tea event loop never blocks on the mutex.
+	renderCache atomic.Value // type: string
 
 	// scrollOffset > 0 means we are viewing scrollback history.
 	// 0 = live (showing current screen), N = N lines scrolled up.
 	scrollOffset int
+
+	// inputCh receives bytes to write to the PTY. A dedicated writeLoop
+	// goroutine drains it so that WriteInput never blocks the caller.
+	inputCh chan []byte
 
 	// MuxCmds receives commands from the child process via OSC title sequences.
 	// The mux model should drain this channel in its Update loop.
@@ -83,6 +92,7 @@ func NewTermPane(id int, name string, exe string, args []string, width, height i
 		height:  height,
 		ctx:     ctx,
 		cancel:  cancel,
+		inputCh: make(chan []byte, 64),
 		MuxCmds: make(chan MuxCmd, 8),
 	}
 
@@ -103,12 +113,16 @@ func NewTermPane(id int, name string, exe string, args []string, width, height i
 	})
 
 	go tp.readLoop()
+	go tp.writeLoop()
+	go tp.vtResponseLoop()
 	go tp.waitExit()
 
 	return tp, nil
 }
 
 // readLoop continuously reads PTY output and writes it to the VT emulator.
+// After each write it atomically updates renderCache so that Render() in the
+// Bubble Tea event loop can read the latest screen content without blocking.
 func (tp *TermPane) readLoop() {
 	buf := make([]byte, 32*1024)
 	for {
@@ -122,10 +136,49 @@ func (tp *TermPane) readLoop() {
 		if n > 0 {
 			tp.mu.Lock()
 			tp.vt.Write(buf[:n])
+			rendered := tp.vt.Render()
 			tp.mu.Unlock()
+			tp.renderCache.Store(rendered)
 		}
 		if err != nil {
 			return
+		}
+	}
+}
+
+// writeLoop drains inputCh and writes bytes to the PTY. Running in its own
+// goroutine ensures that PTY writes never block the Bubble Tea event loop.
+func (tp *TermPane) writeLoop() {
+	for {
+		select {
+		case <-tp.ctx.Done():
+			return
+		case data := <-tp.inputCh:
+			tp.pty.Write(data)
+		}
+	}
+}
+
+// vtResponseLoop forwards VT emulator responses back to the PTY.
+// The VT emulator processes certain terminal queries (e.g. \x1b[6n cursor
+// position request) by writing a response to its internal io.Pipe write end.
+// If nobody drains that pipe, vt.Write() blocks permanently while holding
+// tp.mu, deadlocking the event loop. This goroutine drains the pipe and
+// forwards the bytes to the PTY so the child process receives the reply.
+func (tp *TermPane) vtResponseLoop() {
+	buf := make([]byte, 256)
+	for {
+		n, err := tp.vt.Read(buf)
+		if n > 0 {
+			tp.pty.Write(buf[:n])
+		}
+		if err != nil {
+			return
+		}
+		select {
+		case <-tp.ctx.Done():
+			return
+		default:
 		}
 	}
 }
@@ -157,19 +210,28 @@ func (tp *TermPane) Focus() { tp.focused.Store(true) }
 // Blur removes input focus from this pane.
 func (tp *TermPane) Blur() { tp.focused.Store(false) }
 
-// WriteInput sends raw bytes to the subprocess via the PTY.
+// WriteInput sends raw bytes to the subprocess via the PTY. It is safe to call
+// from any goroutine, including the Bubble Tea event loop, and never blocks.
 func (tp *TermPane) WriteInput(p []byte) (int, error) {
 	if tp.dead.Load() {
 		return 0, io.ErrClosedPipe
 	}
-	return tp.pty.Write(p)
+	// Copy the slice before handing it off: the caller may reuse the buffer.
+	buf := make([]byte, len(p))
+	copy(buf, p)
+	select {
+	case tp.inputCh <- buf:
+	default:
+		// Channel full: drop to avoid blocking the event loop.
+	}
+	return len(p), nil
 }
 
 // ScrollUp scrolls the viewport up by n lines into the scrollback buffer.
 func (tp *TermPane) ScrollUp(n int) {
-	tp.mu.RLock()
+	tp.mu.Lock()
 	maxOffset := tp.vt.ScrollbackLen()
-	tp.mu.RUnlock()
+	tp.mu.Unlock()
 	tp.scrollOffset += n
 	if tp.scrollOffset > maxOffset {
 		tp.scrollOffset = maxOffset
@@ -190,18 +252,25 @@ func (tp *TermPane) IsScrolled() bool {
 }
 
 // Render returns the current screen content as an ANSI-encoded string.
-// When scrolled, it composites scrollback lines with screen lines.
+// For the live view (scrollOffset == 0) it reads from the atomic renderCache,
+// which is updated by readLoop after every vt.Write. This path never blocks.
+// For scrollback it acquires the mutex briefly to read from the vt emulator.
 func (tp *TermPane) Render() string {
-	tp.mu.RLock()
-	defer tp.mu.RUnlock()
-
 	if tp.scrollOffset == 0 {
-		return tp.vt.Render()
+		// Fast non-blocking path: use the atomically cached render.
+		if v := tp.renderCache.Load(); v != nil {
+			return v.(string)
+		}
+		return ""
 	}
 
+	// Scrollback path: needs consistent vt state. vtResponseLoop drains the
+	// VT's internal pipe so vt.Write() never blocks permanently; this lock
+	// is held only for the brief duration of the scrollback cell reads.
+	tp.mu.Lock()
+	defer tp.mu.Unlock()
+
 	// Build view from scrollback + screen content.
-	// scrollOffset=N means show N lines from scrollback at the top,
-	// pushing the live screen down (bottom N lines of screen are hidden).
 	h := tp.vt.Height()
 	w := tp.vt.Width()
 	sbLen := tp.vt.ScrollbackLen()
@@ -211,7 +280,6 @@ func (tp *TermPane) Render() string {
 	}
 
 	var lines []string
-	// Lines from scrollback
 	sbStart := sbLen - tp.scrollOffset
 	sbLines := tp.scrollOffset
 	if sbLines > h {
@@ -230,13 +298,8 @@ func (tp *TermPane) Render() string {
 		}
 		lines = append(lines, line)
 	}
-	// Fill remaining with live screen lines (from top)
 	screenLines := h - len(lines)
 	for y := 0; y < screenLines; y++ {
-		cell := tp.vt.CellAt(0, y)
-		_ = cell
-		// Use Render for the visible portion — but we can't slice Render().
-		// Fallback: read cells directly for the remaining lines.
 		line := ""
 		for x := 0; x < w; x++ {
 			c := tp.vt.CellAt(x, y)
@@ -265,7 +328,8 @@ func (tp *TermPane) Resize(width, height int) error {
 	tp.vt.Resize(width, height)
 	tp.mu.Unlock()
 
-	return tp.pty.Resize(width, height)
+	err := tp.pty.Resize(width, height)
+	return err
 }
 
 // Width returns the current pane width.

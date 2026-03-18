@@ -2,6 +2,7 @@ package mux
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -10,6 +11,20 @@ import (
 
 // tickMsg drives periodic screen refreshes.
 type tickMsg time.Time
+
+// paneReadyMsg is sent by an async pane-creation Cmd when the subprocess
+// is ready. The mux adds it as a new tab in Update().
+type paneReadyMsg struct {
+	pane *TermPane
+}
+
+// splitReadyMsg is like paneReadyMsg but for a split-pane operation.
+type splitReadyMsg struct {
+	pane      *TermPane
+	dir       Direction
+	tabIdx    int
+	focusedID int
+}
 
 // Mux is the top-level Bubble Tea model that manages multiple terminal panes
 // arranged in tabs, each tab containing a layout tree of split panes.
@@ -29,7 +44,9 @@ type Mux struct {
 
 	paneFactory        PaneFactory
 	sessionPaneFactory SessionPaneFactory
-	sidebarState       SidebarState
+
+	sidebarMu    sync.Mutex
+	sidebarState SidebarState
 
 	// Overlay state — at most one overlay is active at a time.
 	overlayMode overlayType
@@ -69,7 +86,9 @@ type SidebarState struct {
 // SetSidebarState updates the global status counters shown in the sidebar.
 // Safe to call from any goroutine.
 func (m *Mux) SetSidebarState(s SidebarState) {
+	m.sidebarMu.Lock()
 	m.sidebarState = s
+	m.sidebarMu.Unlock()
 }
 
 // New creates a new Mux with the given options. A PaneFactory must be provided
@@ -119,11 +138,36 @@ func (m *Mux) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		m.reapDeadPanes()
-		m.drainMuxCmds()
+		cmds := m.drainMuxCmds()
 		if m.quitting {
 			return m, tea.Quit
 		}
-		return m, m.tickCmd()
+		cmds = append(cmds, m.tickCmd())
+		return m, tea.Batch(cmds...)
+
+	case paneReadyMsg:
+		if msg.pane == nil {
+			return m, nil
+		}
+		m.blurFocused()
+		msg.pane.Focus()
+		m.focusedID = msg.pane.ID()
+		m.tabs = append(m.tabs, NewLeaf(msg.pane))
+		m.activeTab = len(m.tabs) - 1
+		m.resizeAll()
+		return m, nil
+
+	case splitReadyMsg:
+		if msg.pane == nil || msg.tabIdx >= len(m.tabs) {
+			return m, nil
+		}
+		tab := m.tabs[msg.tabIdx]
+		tab.Split(msg.focusedID, msg.dir, msg.pane)
+		m.blurFocused()
+		msg.pane.Focus()
+		m.focusedID = msg.pane.ID()
+		m.resizeAll()
+		return m, nil
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -164,7 +208,10 @@ func (m *Mux) View() string {
 	// Render sidebar.
 	var sidebar string
 	if m.sidebarWidth > 0 {
-		sidebar = renderSidebar(m.tabs, m.activeTab, m.focusedID, m.sidebarState, m.sidebarWidth, contentH-statusH)
+		m.sidebarMu.Lock()
+		state := m.sidebarState
+		m.sidebarMu.Unlock()
+		sidebar = renderSidebar(m.tabs, m.activeTab, m.focusedID, state, m.sidebarWidth, contentH-statusH)
 		sep := renderVerticalSep(contentH - statusH)
 		content = lipgloss.JoinHorizontal(lipgloss.Top, sidebar, sep, content)
 	}
@@ -300,52 +347,43 @@ func (m *Mux) execAction(action MuxAction, msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 
 // --- Pane management ---
 
+// createPane returns a Cmd that creates a new pane asynchronously.
+// The pane factory runs in a goroutine so it never blocks the event loop.
 func (m *Mux) createPane() tea.Cmd {
 	if m.paneFactory == nil {
 		return nil
 	}
-
-	w, h := m.paneArea()
-	pane, err := m.paneFactory(m.nextID, w, h)
-	if err != nil {
-		return nil
-	}
+	id := m.nextID
 	m.nextID++
-
-	// Blur current, focus new.
-	m.blurFocused()
-	pane.Focus()
-	m.focusedID = pane.ID()
-
-	// Add as a new tab.
-	m.tabs = append(m.tabs, NewLeaf(pane))
-	m.activeTab = len(m.tabs) - 1
-
-	return nil
+	w, h := m.paneArea()
+	factory := m.paneFactory
+	return func() tea.Msg {
+		pane, err := factory(id, w, h)
+		if err != nil || pane == nil {
+			return nil
+		}
+		return paneReadyMsg{pane: pane}
+	}
 }
 
+// splitFocused returns a Cmd that creates a new pane for splitting asynchronously.
 func (m *Mux) splitFocused(dir Direction) tea.Cmd {
 	if m.paneFactory == nil || m.activeTab >= len(m.tabs) {
 		return nil
 	}
-
-	w, h := m.paneArea()
-	pane, err := m.paneFactory(m.nextID, w/2, h)
-	if err != nil {
-		return nil
-	}
+	id := m.nextID
 	m.nextID++
-
-	tab := m.tabs[m.activeTab]
-	tab.Split(m.focusedID, dir, pane)
-
-	// Move focus to the new pane.
-	m.blurFocused()
-	pane.Focus()
-	m.focusedID = pane.ID()
-
-	m.resizeAll()
-	return nil
+	w, h := m.paneArea()
+	factory := m.paneFactory
+	tabIdx := m.activeTab
+	focusedID := m.focusedID
+	return func() tea.Msg {
+		pane, err := factory(id, w/2, h)
+		if err != nil || pane == nil {
+			return nil
+		}
+		return splitReadyMsg{pane: pane, dir: dir, tabIdx: tabIdx, focusedID: focusedID}
+	}
 }
 
 func (m *Mux) closeFocusedPane() {
@@ -452,7 +490,9 @@ func (m *Mux) handleClick(x, y int) (tea.Model, tea.Cmd) {
 	case hitSession:
 		if index < len(m.sidebarState.Sessions) {
 			s := m.sidebarState.Sessions[index]
-			m.handleMuxCmd(MuxCmd{Action: "MuxOpen", Arg: s.ID})
+			if cmd := m.handleMuxCmd(MuxCmd{Action: "MuxOpen", Arg: s.ID}); cmd != nil {
+				return m, cmd
+			}
 		}
 	}
 	return m, nil
@@ -649,13 +689,17 @@ func (m *Mux) reapDeadPanes() {
 }
 
 // drainMuxCmds processes any pending OSC commands from child panes.
-func (m *Mux) drainMuxCmds() {
+// Returns any Cmds that should be batched back to the Bubble Tea runtime.
+func (m *Mux) drainMuxCmds() []tea.Cmd {
+	var cmds []tea.Cmd
 	for _, tab := range m.tabs {
 		for _, pane := range tab.Panes() {
 			for {
 				select {
 				case cmd := <-pane.MuxCmds:
-					m.handleMuxCmd(cmd)
+					if c := m.handleMuxCmd(cmd); c != nil {
+						cmds = append(cmds, c)
+					}
 				default:
 					goto next
 				}
@@ -663,36 +707,39 @@ func (m *Mux) drainMuxCmds() {
 		next:
 		}
 	}
+	return cmds
 }
 
-func (m *Mux) handleMuxCmd(cmd MuxCmd) {
+// handleMuxCmd handles a single OSC command from a child pane.
+// For operations that require creating a new subprocess it returns an async
+// tea.Cmd so the factory runs in a goroutine and never blocks the event loop.
+func (m *Mux) handleMuxCmd(cmd MuxCmd) tea.Cmd {
 	switch cmd.Action {
 	case "MuxRename":
-		// Rename the pane that sent this command.
 		for _, tab := range m.tabs {
 			if p := tab.FindPane(cmd.PaneID); p != nil {
 				p.SetName(cmd.Arg)
-				return
+				return nil
 			}
 		}
 	case "MuxOpen":
-		// Open a new pane bound to a specific session.
 		if m.sessionPaneFactory == nil {
-			return
+			return nil
 		}
-		w, h := m.paneArea()
-		pane, err := m.sessionPaneFactory(m.nextID, cmd.Arg, w, h)
-		if err != nil {
-			return
-		}
+		id := m.nextID
 		m.nextID++
-		m.blurFocused()
-		pane.Focus()
-		m.focusedID = pane.ID()
-		m.tabs = append(m.tabs, NewLeaf(pane))
-		m.activeTab = len(m.tabs) - 1
-		m.resizeAll()
+		w, h := m.paneArea()
+		factory := m.sessionPaneFactory
+		arg := cmd.Arg
+		return func() tea.Msg {
+			pane, err := factory(id, arg, w, h)
+			if err != nil || pane == nil {
+				return nil
+			}
+			return paneReadyMsg{pane: pane}
+		}
 	}
+	return nil
 }
 
 func (m *Mux) tickCmd() tea.Cmd {

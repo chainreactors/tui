@@ -233,9 +233,65 @@ func (n *LayoutNode) Render(width, height int, focusedID int) string {
 	return ""
 }
 
-// findNode finds the leaf node containing the pane with the given id.
-func (n *LayoutNode) findNode(id int) *LayoutNode {
+// PaneOrigin returns the (x, y) top-left offset of the pane with the given id
+// within a layout area of the given dimensions. The coordinates are 0-indexed
+// and use the same split arithmetic as Render/Resize. Returns found=false when
+// the id is not present in this subtree.
+func (n *LayoutNode) PaneOrigin(id, width, height int) (x, y int, found bool) {
 	if n.IsLeaf() {
+		if n.Pane != nil && n.Pane.ID() == id {
+			return 0, 0, true
+		}
+		return 0, 0, false
+	}
+
+	switch n.Direction {
+	case Horizontal:
+		leftW := int(float64(width) * n.Ratio)
+		rightW := width - leftW - 1 // -1 for separator
+		if leftW < 1 {
+			leftW = 1
+		}
+		if rightW < 1 {
+			rightW = 1
+		}
+		if n.Children[0] != nil {
+			if ox, oy, ok := n.Children[0].PaneOrigin(id, leftW, height); ok {
+				return ox, oy, true
+			}
+		}
+		if n.Children[1] != nil {
+			if ox, oy, ok := n.Children[1].PaneOrigin(id, rightW, height); ok {
+				return leftW + 1 + ox, oy, true // +1 for separator column
+			}
+		}
+
+	case Vertical:
+		topH := int(float64(height) * n.Ratio)
+		botH := height - topH - 1 // -1 for separator
+		if topH < 1 {
+			topH = 1
+		}
+		if botH < 1 {
+			botH = 1
+		}
+		if n.Children[0] != nil {
+			if ox, oy, ok := n.Children[0].PaneOrigin(id, width, topH); ok {
+				return ox, oy, true
+			}
+		}
+		if n.Children[1] != nil {
+			if ox, oy, ok := n.Children[1].PaneOrigin(id, width, botH); ok {
+				return ox, topH + 1 + oy, true // +1 for separator row
+			}
+		}
+	}
+
+	return 0, 0, false
+}
+
+// findNode finds the leaf node containing the pane with the given id.
+func (n *LayoutNode) findNode(id int) *LayoutNode {	if n.IsLeaf() {
 		if n.Pane != nil && n.Pane.ID() == id {
 			return n
 		}

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/x/vt"
 	"github.com/charmbracelet/x/xpty"
@@ -47,6 +48,10 @@ type TermPane struct {
 	// Updated by readLoop after each vt.Write; read by Render without locking
 	// so that View() in the Bubble Tea event loop never blocks on the mutex.
 	renderCache atomic.Value // type: string
+
+	// Cached cursor position, updated atomically alongside renderCache.
+	cursorX atomic.Int32
+	cursorY atomic.Int32
 
 	// scrollOffset > 0 means we are viewing scrollback history.
 	// 0 = live (showing current screen), N = N lines scrolled up.
@@ -137,8 +142,11 @@ func (tp *TermPane) readLoop() {
 			tp.mu.Lock()
 			tp.vt.Write(buf[:n])
 			rendered := tp.vt.Render()
+			pos := tp.vt.CursorPosition()
 			tp.mu.Unlock()
 			tp.renderCache.Store(rendered)
+			tp.cursorX.Store(int32(pos.X))
+			tp.cursorY.Store(int32(pos.Y))
 		}
 		if err != nil {
 			return
@@ -251,15 +259,27 @@ func (tp *TermPane) IsScrolled() bool {
 	return tp.scrollOffset > 0
 }
 
+// CursorPos returns the cursor position within the pane as (col, row), 0-indexed.
+func (tp *TermPane) CursorPos() (x, y int) {
+	return int(tp.cursorX.Load()), int(tp.cursorY.Load())
+}
+
 // Render returns the current screen content as an ANSI-encoded string.
 // For the live view (scrollOffset == 0) it reads from the atomic renderCache,
 // which is updated by readLoop after every vt.Write. This path never blocks.
+// When the pane is focused, a reverse-video block cursor is overlaid at the
+// VT cursor position so the user can see where they are typing.
 // For scrollback it acquires the mutex briefly to read from the vt emulator.
 func (tp *TermPane) Render() string {
 	if tp.scrollOffset == 0 {
 		// Fast non-blocking path: use the atomically cached render.
 		if v := tp.renderCache.Load(); v != nil {
-			return v.(string)
+			rendered := v.(string)
+			if tp.focused.Load() {
+				cx, cy := int(tp.cursorX.Load()), int(tp.cursorY.Load())
+				rendered = overlayCursor(rendered, cx, cy)
+			}
+			return rendered
 		}
 		return ""
 	}
@@ -362,4 +382,72 @@ func (tp *TermPane) Close() error {
 	}
 
 	return tp.pty.Close()
+}
+
+// overlayCursor inserts a reverse-video block at (cx, cy) in an ANSI-encoded
+// multi-line string. This renders a visible "soft cursor" without relying on
+// the terminal's hardware cursor, which BubbleTea may hide or reposition.
+func overlayCursor(s string, cx, cy int) string {
+	lines := strings.Split(s, "\n")
+	if cy < 0 || cy >= len(lines) {
+		return s
+	}
+	lines[cy] = overlayCursorInLine(lines[cy], cx)
+	return strings.Join(lines, "\n")
+}
+
+// overlayCursorInLine wraps the cx-th visible character with reverse video.
+func overlayCursorInLine(line string, cx int) string {
+	visible := 0
+	i := 0
+	for i < len(line) {
+		// Skip CSI escape sequences (\x1b[ ... <final byte>).
+		if i+1 < len(line) && line[i] == '\x1b' && line[i+1] == '[' {
+			j := i + 2
+			for j < len(line) && (line[j] < 0x40 || line[j] > 0x7E) {
+				j++
+			}
+			if j < len(line) {
+				j++ // include final byte
+			}
+			i = j
+			continue
+		}
+		// Skip OSC sequences (\x1b] ... ST).
+		if i+1 < len(line) && line[i] == '\x1b' && line[i+1] == ']' {
+			j := i + 2
+			for j < len(line) {
+				if line[j] == '\x1b' && j+1 < len(line) && line[j+1] == '\\' {
+					j += 2
+					break
+				}
+				if line[j] == '\x07' {
+					j++
+					break
+				}
+				j++
+			}
+			i = j
+			continue
+		}
+
+		if visible == cx {
+			_, size := utf8.DecodeRuneInString(line[i:])
+			return line[:i] + "\x1b[7m" + line[i:i+size] + "\x1b[27m" + line[i+size:]
+		}
+
+		_, size := utf8.DecodeRuneInString(line[i:])
+		i += size
+		visible++
+	}
+
+	// Cursor past end of visible content: pad with spaces to reach the
+	// correct column, then show a reverse-video block. VT Render() trims
+	// trailing whitespace, so the cursor column is often beyond the last
+	// visible character.
+	gap := cx - visible
+	if gap > 0 {
+		return line + strings.Repeat(" ", gap) + "\x1b[7m \x1b[27m"
+	}
+	return line + "\x1b[7m \x1b[27m"
 }

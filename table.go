@@ -282,6 +282,14 @@ func (t *TableModel) SetDescSort(s string) {
 	t.table = t.table.SortByDesc(s)
 }
 
+func (t *TableModel) SetBorder(border table.Border) {
+	t.table = t.table.Border(border)
+}
+
+func (t *TableModel) SetHeaderVisibility(visible bool) {
+	t.table = t.table.WithHeaderVisibility(visible)
+}
+
 func (t *TableModel) Run() error {
 	p := tea.NewProgram(t)
 	_, err := p.Run()

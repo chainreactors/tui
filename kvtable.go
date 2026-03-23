@@ -111,7 +111,7 @@ func NewKVTableWithOptions(data map[string]interface{}, opts KVOptions) *TableMo
 	t.table = t.table.
 		WithBaseStyle(kvTableStyle).
 		WithHeaderVisibility(opts.ShowHeader).
-		Border(kvBorder)
+		Border(borderNone)
 
 	// 转换数据为表格行
 	var rows []table.Row
@@ -145,7 +145,7 @@ func NewOrderedKVTableWithOptions(data map[string]interface{}, orderedKeys []str
 	t.table = t.table.
 		WithBaseStyle(kvTableStyle).
 		WithHeaderVisibility(opts.ShowHeader).
-		Border(kvBorder)
+		Border(borderNone)
 
 	// 转换数据为表格行，按指定的键顺序
 	var rows []table.Row

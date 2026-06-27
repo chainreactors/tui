@@ -3,45 +3,45 @@
 package core
 
 import (
-	"bytes"
 	"errors"
 	"io"
 	"os"
-	"os/signal"
 	"strconv"
-	"syscall"
-	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/chainreactors/tui/readline/internal/term"
-	"golang.org/x/sys/unix"
 )
-
-const cursorPosTimeout = 200 * time.Millisecond
-
-var errCursorPosTimeout = errors.New("cursor position read timeout")
 
 // GetCursorPos returns the current cursor position in the terminal.
 // It is safe to call this function even if the shell is reading input.
 func (k *Keys) GetCursorPos() (x, y int) {
-	disable := func() (int, int) { return -1, -1 }
-
-	var cursor []byte
-	var pending []byte
-
-	deadline := time.Now().Add(cursorPosTimeout)
-
-drain:
-	for {
-		select {
-		case <-k.cursor:
-		default:
-			break drain
+	reader := k.inputReader()
+	if control := term.CurrentControl(); control != nil {
+		if !control.IsTerminal() {
+			return -1, -1
 		}
+	} else if fd, ok := readerFd(reader); !ok || !term.IsTerminal(fd) {
+		return -1, -1
 	}
 
-	// Echo the query and wait for the main key
-	// reading routine to send us the response back.
-	term.Print("\x1b[6n")
+	disable := func() (int, int) {
+		os.Stderr.WriteString("\r\ngetCursorPos() not supported by terminal emulator, disabling....\r\n")
+		return -1, -1
+	}
+
+	var cursor []byte
+	var match [][]string
+
+	// Flush any buffered frame output first: the cursor position we are about
+	// to query is only correct once the prompt printed so far is actually on
+	// screen, not still sitting in the output buffer.
+	term.FlushBuffer()
+
+	// Echo the query and wait for the main key reading routine to send us the
+	// response back.
+	term.WriteString("\x1b[6n")
+
 	// In order not to get stuck with an input that might be user-one
 	// (like when the user typed before the shell is fully started, and yet not having
 	// queried cursor yet), we keep reading from stdin until we find the cursor response.
@@ -49,108 +49,65 @@ drain:
 	for {
 		switch {
 		case k.waiting, k.reading:
-			remaining := time.Until(deadline)
-			if remaining <= 0 {
-				return -1, -1
-			}
-
-			select {
-			case cursor = <-k.cursor:
-			case <-time.After(remaining):
-				return -1, -1
-			}
-
-			indices := rxRcvCursorPos.FindSubmatchIndex(cursor)
-			if indices == nil {
-				k.mutex.Lock()
-				k.buf = append(k.buf, cursor...)
-				k.mutex.Unlock()
-				continue
-			}
-
-			y, err := strconv.Atoi(string(cursor[indices[2]:indices[3]]))
-			if err != nil {
-				return disable()
-			}
-
-			x, err = strconv.Atoi(string(cursor[indices[4]:indices[5]]))
-			if err != nil {
-				return disable()
-			}
-
-			return x, y
-
+			cursor = <-k.cursor
 		default:
-			remaining := time.Until(deadline)
-			if remaining <= 0 {
-				return -1, -1
-			}
-
 			buf := make([]byte, keyScanBufSize)
 
-			read, err := readInputWithTimeout(k.inputReader(), buf, remaining)
+			read, err := reader.Read(buf)
 			if err != nil {
-				if errors.Is(err, errCursorPosTimeout) {
-					return -1, -1
-				}
 				return disable()
 			}
 
-			pending = append(pending, buf[:read]...)
-
-			indices := rxRcvCursorPos.FindSubmatchIndex(pending)
-			if indices != nil {
-				prefix := pending[:indices[0]]
-				suffix := pending[indices[1]:]
-				if len(prefix) > 0 || len(suffix) > 0 {
-					k.mutex.Lock()
-					k.buf = append(k.buf, prefix...)
-					k.buf = append(k.buf, suffix...)
-					k.mutex.Unlock()
-				}
-
-				y, err := strconv.Atoi(string(pending[indices[2]:indices[3]]))
-				if err != nil {
-					return disable()
-				}
-
-				x, err = strconv.Atoi(string(pending[indices[4]:indices[5]]))
-				if err != nil {
-					return disable()
-				}
-
-				return x, y
-			}
-
-			// No cursor response yet: flush anything that cannot be part of it.
-			start := bytes.LastIndex(pending, []byte{0x1b, '['})
-			switch {
-			case start == -1:
-				if len(pending) > 0 {
-					k.mutex.Lock()
-					k.buf = append(k.buf, pending...)
-					k.mutex.Unlock()
-					pending = nil
-				}
-			case start > 0:
-				k.mutex.Lock()
-				k.buf = append(k.buf, pending[:start]...)
-				k.mutex.Unlock()
-				pending = pending[start:]
-			}
+			cursor = buf[:read]
 		}
+
+		// We have read (or have been passed) something.
+		if len(cursor) == 0 {
+			return disable()
+		}
+
+		// Attempt to locate cursor response in it.
+		match = rxRcvCursorPos.FindAllStringSubmatch(string(cursor), 1)
+
+		// If there is something but not cursor answer, its user input.
+		if len(match) == 0 && len(cursor) > 0 {
+			k.mutex.RLock()
+			k.buf = append(k.buf, cursor...)
+			k.mutex.RUnlock()
+
+			continue
+		}
+
+		// And if empty, then we should abort.
+		if len(match) == 0 {
+			return disable()
+		}
+
+		break
 	}
+
+	// We know that we have a cursor answer, process it.
+	y, err := strconv.Atoi(match[0][1])
+	if err != nil {
+		return disable()
+	}
+
+	x, err = strconv.Atoi(match[0][2])
+	if err != nil {
+		return disable()
+	}
+
+	return x, y
 }
 
 func (k *Keys) readInputFiltered() (keys []byte, err error) {
-	// Start reading from os.Stdin in the background.
-	// We will either read keys from user, or an EOF
-	// send by ourselves, because we pause reading.
+	// Wait for input to be readable, or for an async refresh request, then
+	// read one chunk. A refresh request returns errInputWake with no keys.
 	buf := make([]byte, keyScanBufSize)
 
-	read, err := k.inputReader().Read(buf)
-	if err != nil && errors.Is(err, io.EOF) {
-		return
+	read, err := k.readStdin(buf)
+	if err != nil {
+		return nil, err
 	}
 
 	// Always attempt to extract cursor position info.
@@ -158,93 +115,126 @@ func (k *Keys) readInputFiltered() (keys []byte, err error) {
 	cursor, keys := k.extractCursorPos(buf[:read])
 
 	if len(cursor) > 0 {
-		select {
-		case k.cursor <- cursor:
-		default:
-		}
+		k.cursor <- cursor
 	}
 
 	return keys, nil
 }
 
-func readInputWithTimeout(reader io.Reader, buf []byte, timeout time.Duration) (int, error) {
-	file, ok := reader.(*os.File)
-	if !ok {
-		type readResult struct {
-			n   int
-			err error
-		}
-		ch := make(chan readResult, 1)
-		go func() {
-			n, err := reader.Read(buf)
-			ch <- readResult{n: n, err: err}
-		}()
-		select {
-		case result := <-ch:
-			return result.n, result.err
-		case <-time.After(timeout):
-			return 0, errCursorPosTimeout
-		}
+// readStdin reads one chunk of input, but first waits (via poll) for stdin to
+// become readable OR for an async refresh to be requested with RequestRefresh.
+// On a refresh request it returns errInputWake with no data. If wake support is
+// unavailable (no pipe, or Stdin exposes no pollable fd) it falls back to a
+// plain blocking read, so input always works.
+func (k *Keys) readStdin(buf []byte) (int, error) {
+	k.wakeMu.Lock()
+	ready := k.wakeReady
+	wakeR := k.wakeR
+	k.wakeMu.Unlock()
+
+	reader := k.inputReader()
+	fd, ok := readerFd(reader)
+	if !ok || !ready {
+		return reader.Read(buf)
 	}
 
-	fds := []unix.PollFd{{
-		Fd:     int32(file.Fd()),
-		Events: unix.POLLIN,
-	}}
-
-	deadline := time.Now().Add(timeout)
-
 	for {
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return 0, errCursorPosTimeout
+		fds := []unix.PollFd{
+			{Fd: int32(fd), Events: unix.POLLIN},    //nolint:gosec // G115: OS file descriptors are small non-negative ints.
+			{Fd: int32(wakeR), Events: unix.POLLIN}, //nolint:gosec // G115: OS file descriptors are small non-negative ints.
 		}
 
-		timeoutMs := int(remaining / time.Millisecond)
-		if timeoutMs <= 0 && remaining > 0 {
-			timeoutMs = 1
-		}
-
-		n, err := unix.Poll(fds, timeoutMs)
-		if err != nil {
+		if _, err := unix.Poll(fds, -1); err != nil {
 			if errors.Is(err, unix.EINTR) {
 				continue
 			}
-			return 0, err
-		}
-		if n == 0 {
-			return 0, errCursorPosTimeout
+
+			// Polling failed (e.g. an fd type without poll support):
+			// fall back to a plain blocking read.
+			return reader.Read(buf)
 		}
 
-		revents := fds[0].Revents
-		if revents&(unix.POLLIN|unix.POLLHUP|unix.POLLERR) == 0 {
-			return 0, errCursorPosTimeout
+		// Real input takes priority, so a coincident wake never delays a
+		// keystroke; the wake byte stays pending and is serviced once idle.
+		if fds[0].Revents&(unix.POLLIN|unix.POLLHUP|unix.POLLERR) != 0 {
+			return reader.Read(buf)
 		}
 
-		return file.Read(buf)
+		if fds[1].Revents&unix.POLLIN != 0 {
+			k.drainWake()
+			return 0, errInputWake
+		}
 	}
 }
 
-// GetTerminalResize for Unix systems using SIGWINCH signal
-func GetTerminalResize(keys *Keys) <-chan bool {
-	resizeChan := make(chan bool, 1)
+// InitWake creates the pipe used to interrupt a blocking input read when an
+// async refresh is requested. Safe to call repeatedly; on failure it leaves
+// wake support disabled (async repaints then coalesce into the next keystroke).
+func (k *Keys) InitWake() {
+	k.CloseWake()
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGWINCH)
+	var p [2]int
+	if err := unix.Pipe(p[:]); err != nil {
+		return
+	}
 
-	go func() {
-		for {
-			<-sigChan
-			isWaiting := keys.waiting
+	_ = unix.SetNonblock(p[0], true)
+	_ = unix.SetNonblock(p[1], true)
 
-			if !isWaiting {
-				select {
-				case resizeChan <- true:
-				default:
-				}
-			}
+	k.wakeMu.Lock()
+	k.wakeR, k.wakeW = p[0], p[1]
+	k.wakeReady = true
+	k.wakeMu.Unlock()
+}
+
+// CloseWake tears down the wake pipe.
+func (k *Keys) CloseWake() {
+	k.wakeMu.Lock()
+	defer k.wakeMu.Unlock()
+
+	if !k.wakeReady {
+		return
+	}
+
+	_ = unix.Close(k.wakeR)
+	_ = unix.Close(k.wakeW)
+	k.wakeReady = false
+}
+
+// RequestRefresh wakes an idle Readline loop so it repaints its UI. It is safe
+// to call from any goroutine and is the primitive behind async UI updates (for
+// instance ui.Hint.SetTransient). It is a no-op when wake support is
+// unavailable, in which case the update is shown at the next keystroke.
+func (k *Keys) RequestRefresh() {
+	k.wakeMu.Lock()
+	defer k.wakeMu.Unlock()
+
+	if !k.wakeReady {
+		return
+	}
+
+	// Non-blocking single-byte write. The pipe is drained on wake, and a full
+	// pipe already means a wake is pending, so dropping the write is harmless.
+	_, _ = unix.Write(k.wakeW, []byte{0})
+}
+
+// drainWake empties the wake pipe so a single request does not re-trigger.
+func (k *Keys) drainWake() {
+	var scratch [16]byte
+
+	for {
+		n, err := unix.Read(k.wakeR, scratch[:])
+		if n <= 0 || err != nil {
+			return
 		}
-	}()
+	}
+}
 
-	return resizeChan
+// readerFd returns the file descriptor backing reader, if it exposes one.
+func readerFd(reader io.Reader) (int, bool) {
+	if f, ok := reader.(interface{ Fd() uintptr }); ok {
+		return int(f.Fd()), true
+	}
+
+	return 0, false
 }

@@ -4,14 +4,9 @@
 package core
 
 import (
-	"errors"
-	"io"
-	"os"
-	"time"
 	"unsafe"
 
 	"github.com/chainreactors/tui/readline/inputrc"
-	"github.com/chainreactors/tui/readline/internal/term"
 )
 
 // Windows-specific special key codes.
@@ -53,17 +48,17 @@ const (
 	charBackspace = 127
 )
 
-// dwControlKeyState flags from Windows Console API.
-const (
-	_RIGHT_ALT_PRESSED  = 0x0001
-	_LEFT_ALT_PRESSED   = 0x0002
-	_RIGHT_CTRL_PRESSED = 0x0004
-	_LEFT_CTRL_PRESSED  = 0x0008
-	_SHIFT_PRESSED      = 0x0010
-)
-
 func init() {
 	Stdin = newRawReader()
+}
+
+// GetTerminalResize sends booleans over a channel to notify resize events on Windows.
+// This functions uses the keys reader because on Windows, resize events are sent through
+// stdin, not with syscalls like unix's syscall.SIGWINCH.
+func GetTerminalResize(keys *Keys) <-chan bool {
+	keys.resize = make(chan bool, 1)
+
+	return keys.resize
 }
 
 // readInputFiltered on Windows needs to check for terminal resize events.
@@ -75,7 +70,11 @@ func (k *Keys) readInputFiltered() (keys []byte, err error) {
 		buf := make([]byte, keyScanBufSize)
 
 		read, err := k.inputReader().Read(buf)
-		if err != nil && errors.Is(err, io.EOF) {
+		if err != nil {
+			// EOF (stream closed) or any other read failure (e.g. a revoked
+			// console handle): propagate it so WaitAvailableKeys records EOF or
+			// surfaces the error, instead of swallowing it and spinning on a
+			// dead stdin. Mirrors the Unix reader's behaviour.
 			return keys, err
 		}
 
@@ -100,28 +99,29 @@ func (k *Keys) readInputFiltered() (keys []byte, err error) {
 	}
 }
 
+// InitWake is a no-op on Windows: the async-refresh wake (poll-based on Unix)
+// is not yet supported here, so async UI updates appear at the next keystroke.
+func (k *Keys) InitWake() {}
+
+// CloseWake is a no-op on Windows.
+func (k *Keys) CloseWake() {}
+
+// RequestRefresh is a no-op on Windows (async wake unsupported); async UI
+// updates appear at the next keystroke.
+func (k *Keys) RequestRefresh() {}
+
 // rawReader translates Windows input to ANSI sequences,
 // to provide the same behavior as Unix terminals.
-type rawReader struct{}
+type rawReader struct {
+	ctrlKey  bool
+	altKey   bool
+	shiftKey bool
+}
 
 // newRawReader returns a new rawReader for Windows.
 func newRawReader() *rawReader {
-	return new(rawReader)
-}
-
-// isCtrl returns true if Ctrl is pressed in this event's dwControlKeyState.
-func isCtrl(state dword) bool {
-	return state&(_LEFT_CTRL_PRESSED|_RIGHT_CTRL_PRESSED) != 0
-}
-
-// isAlt returns true if Alt is pressed in this event's dwControlKeyState.
-func isAlt(state dword) bool {
-	return state&(_LEFT_ALT_PRESSED|_RIGHT_ALT_PRESSED) != 0
-}
-
-// isShift returns true if Shift is pressed in this event's dwControlKeyState.
-func isShift(state dword) bool {
-	return state&_SHIFT_PRESSED != 0
+	r := new(rawReader)
+	return r
 }
 
 // Read reads input record from stdin on Windows.
@@ -142,9 +142,18 @@ next:
 		return 0, err
 	}
 
-	// Skip focus events.
+	// First deal with terminal focus events, which reset some stuff
 	if ir.EventType == EVENT_FOCUS {
-		goto next
+		ker := (*_FOCUS_EVENT_RECORD)(unsafe.Pointer(&ir.Event[0]))
+
+		// If are with Tab Active and losing the focus,
+		// ignore this Alt key that is most likely the "Alt-Tab"
+		// system shortcut on Windows for Tab switching.
+		// QUESTION: Should we also do this to some other modifiers ?
+		if !ker.bSetFocus && r.altKey {
+			r.altKey = false
+			goto next
+		}
 	}
 
 	// Keep resize events for the display engine to use.
@@ -156,55 +165,49 @@ next:
 		goto next
 	}
 
+	// Reset modifiers if key is released.
 	ker := (*_KEY_EVENT_RECORD)(unsafe.Pointer(&ir.Event[0]))
-
-	// Skip key-up events.
-	if ker.bKeyDown == 0 {
+	if ker.bKeyDown == 0 { // keyup
+		if r.ctrlKey || r.altKey || r.shiftKey {
+			switch ker.wVirtualKeyCode {
+			case VK_RCONTROL, VK_LCONTROL, VK_CONTROL:
+				r.ctrlKey = false
+			case VK_MENU: // alt
+				r.altKey = false
+			case VK_SHIFT, VK_LSHIFT, VK_RSHIFT:
+				r.shiftKey = false
+			}
+		}
 		goto next
 	}
 
-	// Skip standalone modifier key presses.
-	switch ker.wVirtualKeyCode {
-	case VK_CONTROL, VK_LCONTROL, VK_RCONTROL,
-		VK_MENU,
-		VK_SHIFT, VK_LSHIFT, VK_RSHIFT:
-		goto next
-	}
-
-	// Use per-event dwControlKeyState for reliable modifier detection.
-	// This avoids stale modifier state when the terminal synthesizes
-	// key events (e.g., bracketed paste after Ctrl+V interception).
-	ctrlKey := isCtrl(ker.dwControlKeyState)
-	altKey := isAlt(ker.dwControlKeyState)
-	shiftKey := isShift(ker.dwControlKeyState)
-
-	// Keypad, special and arrow keys (unicodeChar == 0).
+	// Keypad, special and arrow keys.
 	if ker.unicodeChar == 0 {
-		if modifiers, target := r.translateSeq(ker, ctrlKey, altKey, shiftKey); target != 0 {
+		if modifiers, target := r.translateSeq(ker); target != 0 {
 			return r.writeEsc(buf, append(modifiers, target)...)
 		}
 		goto next
 	}
 
-	{
-		char := rune(ker.unicodeChar)
+	char := rune(ker.unicodeChar)
 
-		// Encode keys with modifiers.
-		switch {
-		case shiftKey && char == charTab:
-			return r.writeEsc(buf, 91, 90)
-		case ctrlKey && char == charBackspace:
-			char = charCtrlH
-		case !ctrlKey && char == charCtrlH:
-			char = charBackspace
-		case ctrlKey:
-			char = inputrc.Encontrol(char)
-		case altKey:
-			char = inputrc.Enmeta(char)
-		}
-
-		return r.write(buf, char)
+	// Encode keys with modifiers.
+	// Deal with the last (Windows) exceptions to the rule.
+	switch {
+	case r.shiftKey && char == charTab:
+		return r.writeEsc(buf, 91, 90)
+	case r.ctrlKey && char == charBackspace:
+		char = charCtrlH
+	case !r.ctrlKey && char == charCtrlH:
+		char = charBackspace
+	case r.ctrlKey:
+		char = inputrc.Encontrol(char)
+	case r.altKey:
+		char = inputrc.Enmeta(char)
 	}
+
+	// Else, the key is a normal character.
+	return r.write(buf, char)
 }
 
 // Close is a stub to satisfy io.Closer.
@@ -223,17 +226,29 @@ func (r *rawReader) write(b []byte, char ...rune) (int, error) {
 	return n, nil
 }
 
-func (r *rawReader) translateSeq(ker *_KEY_EVENT_RECORD, ctrlKey, altKey, shiftKey bool) (modifiers []rune, target rune) {
-	// Encode keys with modifiers by default.
+func (r *rawReader) translateSeq(ker *_KEY_EVENT_RECORD) (modifiers []rune, target rune) {
+	// Encode keys with modifiers by default,
+	// unless the modifier is pressed alone.
 	modifiers = append(modifiers, 91)
 
 	// Modifiers add a default sequence, which is the good sequence for arrow keys by default.
+	// The first rune is this sequence might be modified below, if the target is a special key
+	// but not an arrow key.
+	switch ker.wVirtualKeyCode {
+	case VK_RCONTROL, VK_LCONTROL, VK_CONTROL:
+		r.ctrlKey = true
+	case VK_MENU: // alt
+		r.altKey = true
+	case VK_SHIFT, VK_LSHIFT, VK_RSHIFT:
+		r.shiftKey = true
+	}
+
 	switch {
-	case ctrlKey:
+	case r.ctrlKey:
 		modifiers = append(modifiers, 49, 59, 53)
-	case altKey:
+	case r.altKey:
 		modifiers = append(modifiers, 49, 59, 51)
-	case shiftKey:
+	case r.shiftKey:
 		modifiers = append(modifiers, 49, 59, 50)
 	}
 
@@ -278,28 +293,4 @@ func (r *rawReader) translateSeq(ker *_KEY_EVENT_RECORD, ctrlKey, altKey, shiftK
 	}
 
 	return
-}
-
-// GetTerminalResize sends booleans over a channel to notify resize events on Windows.
-// This functions uses the keys reader because on Windows, resize events are sent through
-// stdin, not with syscalls like unix's syscall.SIGWINCH.
-func GetTerminalResize(keys *Keys) <-chan bool {
-	keys.resize = make(chan bool, 1)
-	prevWidth, prevHeight, _ := term.GetSize(int(os.Stdout.Fd()))
-	go func() {
-		for {
-			width, height, err := term.GetSize(int(os.Stdout.Fd()))
-			if err != nil {
-				break
-			}
-
-			if width != prevWidth || height != prevHeight {
-				prevWidth, prevHeight = width, height
-				//fmt.Println("windows resize")
-				keys.resize <- true
-			}
-			time.Sleep(500 * time.Millisecond)
-		}
-	}()
-	return keys.resize
 }

@@ -8,13 +8,15 @@ import (
 	"unicode"
 
 	"github.com/atotto/clipboard"
+	"github.com/rivo/uniseg"
+
 	"github.com/chainreactors/tui/readline/inputrc"
 	"github.com/chainreactors/tui/readline/internal/color"
 	"github.com/chainreactors/tui/readline/internal/completion"
+	"github.com/chainreactors/tui/readline/internal/core"
 	"github.com/chainreactors/tui/readline/internal/keymap"
 	"github.com/chainreactors/tui/readline/internal/strutil"
 	"github.com/chainreactors/tui/readline/internal/term"
-	"github.com/rivo/uniseg"
 )
 
 // standardCommands returns all standard/emacs commands.
@@ -33,9 +35,6 @@ func (rl *Shell) standardCommands() commands {
 	widgets := map[string]func(){
 		// Modes
 		"emacs-editing-mode": rl.emacsEditingMode,
-
-		"copy-to-clipboard":    rl.copyToClipboard,
-		"paste-from-clipboard": rl.pasteFromClipboard,
 
 		// Moving
 		"forward-char":         rl.forwardChar,
@@ -61,6 +60,7 @@ func (rl *Shell) standardCommands() commands {
 		"tab-insert":                   rl.tabInsert,
 		"self-insert":                  rl.selfInsert,
 		"bracketed-paste-begin":        rl.bracketedPasteBegin,
+		"skip-csi-sequence":            rl.skipCsiSequence,
 		"transpose-chars":              rl.transposeChars,
 		"transpose-words":              rl.transposeWords,
 		"shell-transpose-words":        rl.shellTransposeWords,
@@ -70,11 +70,13 @@ func (rl *Shell) standardCommands() commands {
 		"overwrite-mode":               rl.overwriteMode,
 		"delete-horizontal-whitespace": rl.deleteHorizontalWhitespace,
 
-		"delete-word":      rl.deleteWord,
-		"quote-region":     rl.quoteRegion,
-		"quote-line":       rl.quoteLine,
-		"keyword-increase": rl.keywordIncrease,
-		"keyword-decrease": rl.keywordDecrease,
+		"delete-word":          rl.deleteWord,
+		"quote-region":         rl.quoteRegion,
+		"quote-line":           rl.quoteLine,
+		"keyword-increase":     rl.keywordIncrease,
+		"keyword-decrease":     rl.keywordDecrease,
+		"copy-to-clipboard":    rl.copyToClipboard,
+		"paste-from-clipboard": rl.pasteFromClipboard,
 
 		// Killing & yanking
 		"kill-line":           rl.killLine,
@@ -292,8 +294,8 @@ func (rl *Shell) downLine() {
 func (rl *Shell) clearScreen() {
 	rl.History.SkipSave()
 
-	term.Print(term.CursorTopLeft)
-	term.Print(term.ClearScreen)
+	fmt.Print(term.CursorTopLeft)
+	fmt.Print(term.ClearScreen)
 
 	rl.Display.PrintPrimaryPrompt()
 }
@@ -303,8 +305,8 @@ func (rl *Shell) clearScreen() {
 func (rl *Shell) clearDisplay() {
 	rl.History.SkipSave()
 
-	term.Print(term.CursorTopLeft)
-	term.Print(term.ClearDisplay)
+	fmt.Print(term.CursorTopLeft)
+	fmt.Print(term.ClearDisplay)
 
 	rl.Display.PrintPrimaryPrompt()
 }
@@ -424,10 +426,7 @@ func (rl *Shell) selfInsert() {
 	rl.completer.TrimSuffix()
 
 	key := rl.Keys.Caller()
-	if len(key) == 0 {
-		// todo: temp fix
-		return
-	}
+
 	// Handle autopair insertion (for the closer only)
 	searching, _, _ := rl.completer.NonIncrementallySearching()
 	isearch := rl.Keymap.Local() == keymap.Isearch
@@ -440,6 +439,7 @@ func (rl *Shell) selfInsert() {
 
 	var quoted []rune
 	var length int
+
 	if rl.Config.GetBool("output-meta") && key[0] != inputrc.Esc {
 		quoted = append(quoted, key[0])
 		length = uniseg.StringWidth(string(quoted))
@@ -454,6 +454,37 @@ func (rl *Shell) selfInsert() {
 
 func (rl *Shell) bracketedPasteBegin() {
 	rl.InsertPastedText(string(rl.Keys.ReadUntilSequence([]byte(BracketedPasteEnd))))
+}
+
+// skipCsiSequence consumes the remainder of a CSI escape sequence (the GNU
+// readline skip-csi-sequence command). Terminals encode many special keys as
+// "ESC [" followed by parameter/intermediate bytes (0x20-0x3F) and a single
+// final byte (0x40-0x7E) -- e.g. F5 is "\e[15~", Shift-Tab is "\e[Z". When such
+// a key has no binding, its trailing bytes would otherwise be self-inserted as
+// stray characters. Bound to "\e[", this command catches any CSI sequence that
+// no longer/exact binding claimed and swallows the rest of it, so unrecognised
+// keys do nothing.
+//
+// It is intentionally left unbound by default (as in GNU readline); enable it
+// from inputrc by binding the sequence "\e[" to the skip-csi-sequence command.
+func (rl *Shell) skipCsiSequence() {
+	rl.History.SkipSave()
+
+	// Whatever the dispatcher already consumed of the sequence, drain the rest:
+	// keep popping parameter/intermediate bytes, and stop once we consume the
+	// terminating byte (the final byte, or any non-CSI byte). The keys of a CSI
+	// sequence arrive in a single terminal read, so they are already buffered;
+	// if the buffer empties we simply stop rather than block on a partial one.
+	for {
+		key, empty := core.PopKey(rl.Keys)
+		if empty {
+			return
+		}
+
+		if key < 0x20 || key >= 0x40 {
+			return
+		}
+	}
 }
 
 // Drag the character before point forward over the character
@@ -1238,7 +1269,7 @@ func (rl *Shell) abort() {
 		key := rl.Keys.Caller()
 		if key[0] == rune(inputrc.Unescape(`\C-C`)[0]) {
 			quoted, _ := strutil.Quote(key[0])
-			term.Print(string(quoted))
+			fmt.Print(string(quoted))
 		}
 	}
 
@@ -1435,7 +1466,7 @@ func (rl *Shell) insertComment() {
 // can be made part of an inputrc file.
 func (rl *Shell) dumpFunctions() {
 	rl.Display.ClearHelpers()
-	term.Println()
+	fmt.Println()
 
 	defer func() {
 		rl.Prompt.PrimaryPrint()
@@ -1452,7 +1483,7 @@ func (rl *Shell) dumpFunctions() {
 // can be made part of an inputrc file.
 func (rl *Shell) dumpVariables() {
 	rl.Display.ClearHelpers()
-	term.Println()
+	fmt.Println()
 
 	defer func() {
 		rl.Prompt.PrimaryPrint()
@@ -1460,7 +1491,7 @@ func (rl *Shell) dumpVariables() {
 	}()
 
 	// Get all variables and their values, alphabetically sorted.
-	var variables []string
+	variables := make([]string, 0, len(rl.Config.Vars))
 
 	for variable := range rl.Config.Vars {
 		variables = append(variables, variable)
@@ -1472,12 +1503,12 @@ func (rl *Shell) dumpVariables() {
 	if rl.Iterations.IsSet() {
 		for _, variable := range variables {
 			value := rl.Config.Vars[variable]
-			term.Printf("set %s %v\n", variable, value)
+			fmt.Printf("set %s %v\n", variable, value)
 		}
 	} else {
 		for _, variable := range variables {
 			value := rl.Config.Vars[variable]
-			term.Printf("%s is set to `%v'\n", variable, value)
+			fmt.Printf("%s is set to `%v'\n", variable, value)
 		}
 	}
 }
@@ -1488,7 +1519,7 @@ func (rl *Shell) dumpVariables() {
 // can be made part of an inputrc file.
 func (rl *Shell) dumpMacros() {
 	rl.Display.ClearHelpers()
-	term.Println()
+	fmt.Println()
 
 	defer func() {
 		rl.Prompt.PrimaryPrint()
@@ -1514,12 +1545,12 @@ func (rl *Shell) dumpMacros() {
 	if rl.Iterations.IsSet() {
 		for _, key := range macroBinds {
 			action := inputrc.Escape(binds[inputrc.Unescape(key)].Action)
-			term.Printf("\"%s\": \"%s\"\n", key, action)
+			fmt.Printf("\"%s\": \"%s\"\n", key, action)
 		}
 	} else {
 		for _, key := range macroBinds {
 			action := inputrc.Escape(binds[inputrc.Unescape(key)].Action)
-			term.Printf("%s outputs %s\n", key, action)
+			fmt.Printf("%s outputs %s\n", key, action)
 		}
 	}
 }
@@ -1624,35 +1655,32 @@ func (rl *Shell) selectKeywordPrev() {
 	rl.selection.Visual(false)
 }
 
-// copyToClipboard 将当前选中的内容或整行复制到系统剪贴板
+// copyToClipboard copies the current selection, or the whole line when nothing
+// is selected, to the system clipboard.
 func (rl *Shell) copyToClipboard() {
-	rl.History.SkipSave()
-
-	// 检查是否有选中的文本
 	var text string
 	if rl.selection.Active() {
 		text = rl.selection.Text()
 	} else {
-		// 如果没有选中，复制整行
 		text = string(*rl.line)
 	}
-
-	// 将文本复制到剪贴板
-	clipboard.WriteAll(text)
+	if text == "" {
+		rl.History.SkipSave()
+		return
+	}
+	if err := clipboard.WriteAll(text); err != nil {
+		rl.Hint.SetTemporary(color.FgRed + "copy failed")
+		return
+	}
+	rl.Hint.SetTemporary(color.Dim + "copied")
 }
 
-// pasteFromClipboard 从剪贴板获取内容并粘贴到当前光标位置
+// pasteFromClipboard inserts text from the system clipboard at the cursor.
 func (rl *Shell) pasteFromClipboard() {
-	rl.History.Save()
-
-	// 从剪贴板读取内容
 	text, err := clipboard.ReadAll()
 	if err != nil {
 		rl.Hint.SetTemporary(color.FgRed + "paste failed")
 		return
 	}
-
-	// 将内容插入到光标位置
-	rl.cursor.InsertAt([]rune(text)...)
-	rl.Display.Refresh()
+	rl.InsertPastedText(text)
 }

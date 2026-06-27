@@ -95,6 +95,7 @@ func NewShellWithTerminal(t *rlterm.Terminal, opts ...inputrc.Option) *Shell {
 	if t.Err == nil {
 		t.Err = t.Out
 	}
+
 	shell := new(Shell)
 	shell.Terminal = t
 
@@ -125,7 +126,7 @@ func NewShellWithTerminal(t *rlterm.Terminal, opts ...inputrc.Option) *Shell {
 	shell.Opts = opts
 
 	// User interface
-	hint := new(ui.Hint)
+	hint := ui.NewHint(keys)
 	prompt := ui.NewPrompt(line, cursor, keymaps, config)
 	macros := macro.NewEngine(keys, hint)
 	history := history.NewSources(line, cursor, hint, config)
@@ -172,11 +173,12 @@ func (rl *Shell) Selection() *core.Selection { return rl.selection }
 func (rl *Shell) Printf(msg string, args ...any) (n int, err error) {
 	restore := term.Activate(rl.Terminal.Out, rl.Terminal.Control)
 	defer restore()
+
 	// First go back to the last line of the input line,
 	// and clear everything below (hints and completions).
 	rl.Display.CursorBelowLine()
 	term.MoveCursorBackwards(term.GetWidth())
-	term.Print(term.ClearScreenBelow)
+	term.WriteString(term.ClearScreenBelow)
 
 	// Skip a line, and print the formatted message.
 	n, err = fmt.Fprintf(rl.Terminal.Out, msg+"\n", args...)
@@ -193,15 +195,15 @@ func (rl *Shell) Printf(msg string, args ...any) (n int, err error) {
 func (rl *Shell) PrintTransientf(msg string, args ...any) (n int, err error) {
 	restore := term.Activate(rl.Terminal.Out, rl.Terminal.Control)
 	defer restore()
+
 	// First go back to the beginning of the line/prompt, and
 	// clear everything below (prompt/line/hints/completions).
 	rl.Display.CursorToLineStart()
 	term.MoveCursorBackwards(term.GetWidth())
 	term.MoveCursorUp(rl.Prompt.PrimaryUsed())
-	term.Print(term.ClearScreenBelow)
+	term.WriteString(term.ClearScreenBelow)
 
 	// Print the logged message.
-	// Ensure exactly one trailing newline to separate message from redrawn prompt.
 	formatted := fmt.Sprintf(msg, args...)
 	if !strings.HasSuffix(formatted, "\n") {
 		formatted += "\n"
@@ -215,7 +217,7 @@ func (rl *Shell) PrintTransientf(msg string, args ...any) (n int, err error) {
 	return
 }
 
-// SetInlineSuggestion sets an inline suggestion to display after the cursor (fish-style).
+// SetInlineSuggestion sets an inline suggestion to display after the cursor.
 func (rl *Shell) SetInlineSuggestion(suggestion string) {
 	rl.Display.SetInlineSuggestion(suggestion)
 }
@@ -235,6 +237,7 @@ func (rl *Shell) Refresh() {
 	if rl == nil || rl.Display == nil {
 		return
 	}
+
 	restore := term.Activate(rl.Terminal.Out, rl.Terminal.Control)
 	defer restore()
 	rl.Display.Refresh()

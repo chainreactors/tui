@@ -59,14 +59,14 @@ func (m *Engine) PrintCursor(keymap Mode) {
 	modeSet := strings.TrimSpace(m.config.GetString(cursorOptname))
 
 	if _, valid := cursors[CursorStyle(modeSet)]; valid {
-		term.Print(cursors[CursorStyle(modeSet)])
+		term.WriteString(cursors[CursorStyle(modeSet)])
 		return
 	}
 
 	if defaultCur, valid := defaultCursors[keymap]; valid {
-		term.Print(cursors[defaultCur])
+		term.WriteString(cursors[defaultCur])
 		return
 	}
 
-	term.Print(cursors[cursor])
+	term.WriteString(cursors[cursor])
 }

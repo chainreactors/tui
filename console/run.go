@@ -10,6 +10,8 @@ import (
 
 	"github.com/kballard/go-shellquote"
 	"github.com/spf13/cobra"
+
+	"github.com/chainreactors/tui/console/internal/line"
 )
 
 // Start - Start the console application (readline loop). Blocking.
@@ -19,7 +21,20 @@ func (c *Console) Start() error {
 	return c.StartContext(context.Background())
 }
 
-// StartContext is like console.Start(). with a user-provided context.
+// StartContext is like console.Start(), with a user-provided context.
+//
+// Cancellation model: each command runs with a context derived from ctx,
+// accessible from within the command via cmd.Context(). When the console
+// traps one of its Signals (SIGINT/SIGTERM/SIGQUIT by default) while a command
+// is running, that command's context is cancelled and any registered interrupt
+// handler for the menu is invoked. Cancelling ctx itself does the same on the
+// next command boundary.
+//
+// Because cobra cannot preempt a running command, a long-running command is
+// only actually interrupted if it observes cancellation itself: select on
+// cmd.Context().Done() (or pass cmd.Context() to context-aware callees) and
+// return promptly. A command that ignores its context keeps running in its
+// goroutine until it finishes, even though the prompt has already been freed.
 func (c *Console) StartContext(ctx context.Context) error {
 	c.loadActiveHistories()
 
@@ -31,6 +46,8 @@ func (c *Console) StartContext(ctx context.Context) error {
 	lastLine := "" // used to check if last read line is empty.
 
 	for {
+		// Print a newline after the last output if NewlineAfter is true
+		// and the last line was not empty.
 		c.displayPostRun(lastLine)
 
 		// Always ensure we work with the active menu, with freshly
@@ -45,15 +62,10 @@ func (c *Console) StartContext(ctx context.Context) error {
 		}
 
 		// Block and read user input.
-		line, err := c.Readline()
-
-		c.displayPostRun(line)
-
+		input, err := c.Readline()
 		if err != nil {
 			menu.handleInterrupt(err)
-
-			lastLine = line
-
+			lastLine = input
 			continue
 		}
 
@@ -63,15 +75,15 @@ func (c *Console) StartContext(ctx context.Context) error {
 		menu = c.activeMenu()
 
 		// Parse the line with bash-syntax, removing comments.
-		resolvedLine := c.ResolvePasteReferences(line)
-		args, err := c.parse(resolvedLine)
+		resolvedInput := c.ResolvePasteReferences(input)
+		args, err := line.Parse(resolvedInput)
 		if err != nil {
 			menu.ErrorHandler(ParseError{newError(err, "Parsing error")})
 			continue
 		}
 
 		if len(args) == 0 {
-			lastLine = line
+			lastLine = input
 			continue
 		}
 
@@ -83,6 +95,10 @@ func (c *Console) StartContext(ctx context.Context) error {
 			continue
 		}
 
+		// Print a newline before executing the command if NewlineBefore is true
+		// and the last line was not empty.
+		c.displayPreRun(input)
+
 		// Run all pre-run hooks and the command itself
 		// Don't check the error: if its a cobra error,
 		// the library user is responsible for setting
@@ -92,7 +108,7 @@ func (c *Console) StartContext(ctx context.Context) error {
 			menu.ErrorHandler(ExecutionError{newError(err, "")})
 		}
 
-		lastLine = line
+		lastLine = input
 	}
 }
 
@@ -108,7 +124,7 @@ func (m *Menu) RunCommandArgs(ctx context.Context, args []string) (err error) {
 	m.resetPreRun()
 
 	// Run the command and associated helpers.
-	return m.console.Execute(ctx, m, args, !m.console.isExecuting)
+	return m.console.Execute(ctx, m, args, !m.console.isExecuting.Load())
 }
 
 // RunCommandLine is the equivalent of menu.RunCommandArgs(), but accepts
@@ -136,16 +152,10 @@ func (m *Menu) RunCommandLine(ctx context.Context, line string) (err error) {
 // command is running, the menu's root command will be overwritten.
 func (c *Console) Execute(ctx context.Context, menu *Menu, args []string, async bool) error {
 	if !async {
-		c.mutex.RLock()
-		c.isExecuting = true
-		c.mutex.RUnlock()
+		c.isExecuting.Store(true)
 	}
 
-	defer func() {
-		c.mutex.RLock()
-		c.isExecuting = false
-		c.mutex.RUnlock()
-	}()
+	defer c.isExecuting.Store(false)
 
 	// Our root command of interest, used throughout this function.
 	cmd := menu.Command
@@ -157,7 +167,6 @@ func (c *Console) Execute(ctx context.Context, menu *Menu, args []string, async 
 		return err
 	}
 
-	// Reset all flags to their default values.
 	resetFlagsDefaults(target)
 
 	// Console-wide pre-run hooks, cannot.
@@ -175,7 +184,11 @@ func (c *Console) Execute(ctx context.Context, menu *Menu, args []string, async 
 	cmd.SetContext(ctx)
 
 	// Start monitoring keyboard and OS signals.
+	// signal.Stop releases the channel registration once the command
+	// returns: without it, every command execution would leak a channel
+	// in the os/signal package for the lifetime of the process.
 	sigchan := c.monitorSignals()
+	defer signal.Stop(sigchan)
 
 	// And start the command execution.
 	go c.executeCommand(cmd, cancel)
@@ -251,44 +264,43 @@ func (c *Console) runLineHooks(args []string) ([]string, error) {
 	return processed, nil
 }
 
-func (c *Console) displayPreRun(line string) {
-	if c.NewlineBefore {
-		if !c.NewlineWhenEmpty {
-			if !c.lineEmpty(line) {
-				fmt.Fprintln(c.terminal.Out)
-			}
-		} else {
-			fmt.Fprintln(c.terminal.Out)
-		}
+func (c *Console) displayPreRun(input string) {
+	menu := c.activeMenu()
+
+	if menu.newlineBefore() && (menu.newlineWhenEmpty() || !line.IsEmpty(input, menu.emptyCharSet()...)) {
+		fmt.Fprintln(c.terminal.Out)
 	}
 }
 
 func (c *Console) displayPostRun(lastLine string) {
-	if c.NewlineAfter {
-		if !c.NewlineWhenEmpty {
-			if !c.lineEmpty(lastLine) {
-				fmt.Fprintln(c.terminal.Out)
-			}
-		} else {
-			fmt.Fprintln(c.terminal.Out)
-		}
+	menu := c.activeMenu()
+
+	if menu.newlineAfter() && (menu.newlineWhenEmpty() || !line.IsEmpty(lastLine, menu.emptyCharSet()...)) {
+		fmt.Fprintln(c.terminal.Out)
 	}
 
 	c.printed = false
 }
 
+// defaultTrapSignals are the OS signals the console traps while a command is
+// running when Console.Signals has not been customized.
+var defaultTrapSignals = []os.Signal{
+	syscall.SIGINT,
+	syscall.SIGTERM,
+	syscall.SIGQUIT,
+}
+
 // monitorSignals - Monitor the signals that can be sent to the process
 // while a command is running. We want to be able to cancel the command.
-func (c *Console) monitorSignals() <-chan os.Signal {
+func (c *Console) monitorSignals() chan os.Signal {
 	sigchan := make(chan os.Signal, 1)
 
-	signal.Notify(
-		sigchan,
-		syscall.SIGINT,
-		syscall.SIGTERM,
-		syscall.SIGQUIT,
-		// syscall.SIGKILL,
-	)
+	signals := c.Signals
+	if len(signals) == 0 {
+		signals = defaultTrapSignals
+	}
+
+	signal.Notify(sigchan, signals...)
 
 	return sigchan
 }

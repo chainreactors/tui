@@ -4,23 +4,22 @@
 package display
 
 import (
-	"github.com/chainreactors/tui/readline/internal/core"
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/chainreactors/tui/readline/internal/term"
 )
 
 // WatchResize redisplays the interface on terminal resize events.
 func WatchResize(eng *Engine) chan<- bool {
-	resizeChannel := core.GetTerminalResize(eng.keys)
 	done := make(chan bool, 1)
-	output := term.Output()
-	control := term.CurrentControl()
+
+	resizeChannel := make(chan os.Signal, 1)
+	signal.Notify(resizeChannel, syscall.SIGWINCH)
 	unregister := term.OnResize(func(_, _ int) {
-		if eng.keys != nil && !eng.keys.IsReading() && !eng.keys.IsWaiting() {
-			restore := term.Activate(output, control)
-			eng.completer.GenerateCached()
-			eng.Refresh()
-			restore()
-		}
+		eng.completer.RequestRegen()
+		eng.keys.RequestRefresh()
 	})
 
 	go func() {
@@ -28,12 +27,12 @@ func WatchResize(eng *Engine) chan<- bool {
 		for {
 			select {
 			case <-resizeChannel:
-				if eng.keys != nil && !eng.keys.IsReading() && !eng.keys.IsWaiting() {
-					restore := term.Activate(output, control)
-					eng.completer.GenerateCached()
-					eng.Refresh()
-					restore()
-				}
+				// Route the regeneration + repaint through the input wake so
+				// they run on the Readline goroutine, instead of mutating the
+				// completion/display state and writing to stdout from here
+				// (which races with the main loop).
+				eng.completer.RequestRegen()
+				eng.keys.RequestRefresh()
 			case <-done:
 				return
 			}

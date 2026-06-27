@@ -8,9 +8,10 @@ import (
 	"regexp"
 	"sync"
 
+	"github.com/rivo/uniseg"
+
 	"github.com/chainreactors/tui/readline/inputrc"
 	"github.com/chainreactors/tui/readline/internal/strutil"
-	"github.com/rivo/uniseg"
 )
 
 const (
@@ -24,6 +25,10 @@ var Stdin io.ReadCloser = os.Stdin
 
 var rxRcvCursorPos = regexp.MustCompile(`\x1b\[([0-9]+);([0-9]+)R`)
 
+// errInputWake is returned by the input read when it was interrupted by an
+// async refresh request (RequestRefresh) rather than by actual key input.
+var errInputWake = errors.New("readline: input wake")
+
 // Keys is used to read, manage and use keys input by the shell user.
 type Keys struct {
 	input     io.Reader
@@ -35,17 +40,24 @@ type Keys struct {
 	reading   bool        // Currently reading keys out of the main loop.
 	keysOnce  chan []byte // Passing keys from the main routine.
 	cursor    chan []byte // Cursor coordinates has been read on stdin.
-	resize    chan bool   // Resize events on Windows are sent on stdin. USED IN WINDOWS
+	resize    chan bool   //nolint:unused // Resize events on Windows are sent on stdin; consumed only by the windows build.
 
-	eof   bool            // EOF has been reached.
-	cfg   *inputrc.Config // Configuration file used for meta key settings
-	mutex sync.RWMutex    // Concurrency safety
+	wakeMu    sync.Mutex // Guards the wake fields against RequestRefresh (other goroutine).
+	wakeR     int        // Read end of the async-refresh wake pipe.
+	wakeW     int        // Write end of the async-refresh wake pipe.
+	wakeReady bool       // Whether the wake pipe is initialized and usable.
+
+	eof     bool            // EOF has been reached.
+	readErr error           // First non-EOF, non-wake input failure (e.g. a revoked tty).
+	cfg     *inputrc.Config // Configuration file used for meta key settings
+	mutex   sync.RWMutex    // Concurrency safety
 }
 
 // SetInput sets the reader used for keyboard input.
 func (k *Keys) SetInput(input io.Reader) {
 	k.mutex.Lock()
 	defer k.mutex.Unlock()
+
 	k.input = input
 }
 
@@ -53,9 +65,11 @@ func (k *Keys) inputReader() io.Reader {
 	k.mutex.RLock()
 	input := k.input
 	k.mutex.RUnlock()
+
 	if input != nil {
 		return input
 	}
+
 	return Stdin
 }
 
@@ -89,8 +103,26 @@ func WaitAvailableKeys(keys *Keys, cfg *inputrc.Config) {
 		// We will either read keyBuf from user, or an EOF
 		// send by ourselves, because we pause reading.
 		keyBuf, err := keys.readInputFiltered()
-		if err != nil && errors.Is(err, io.EOF) {
-			keys.eof = true
+		if err != nil {
+			// Wake: an async refresh was requested (RequestRefresh) — return
+			// with no keys so the main loop repaints the (possibly updated) UI
+			// and waits again. EOF: input stream closed. Any other error (e.g.
+			// a revoked tty) is a real read failure: record it so the main loop
+			// can surface it and exit, instead of spinning on it forever.
+			switch {
+			case errors.Is(err, errInputWake):
+			case errors.Is(err, io.EOF):
+				keys.mutex.Lock()
+				keys.eof = true
+				keys.mutex.Unlock()
+			default:
+				keys.mutex.Lock()
+				if keys.readErr == nil {
+					keys.readErr = err
+				}
+				keys.mutex.Unlock()
+			}
+
 			return
 		}
 
@@ -110,13 +142,42 @@ func WaitAvailableKeys(keys *Keys, cfg *inputrc.Config) {
 				keyBuf = []byte(strutil.ConvertMeta([]rune(string(keyBuf))))
 			}
 
-			keys.mutex.Lock()
+			keys.mutex.RLock()
 			keys.buf = append(keys.buf, keyBuf...)
-			keys.mutex.Unlock()
+			keys.mutex.RUnlock()
 		}
 
 		return
 	}
+}
+
+// Empty reports whether there are no keys available to dispatch: neither
+// buffered input keys nor macro-fed keys. The main loop uses this to detect a
+// bare async-refresh wake (which returns from WaitAvailableKeys with no keys).
+func (k *Keys) Empty() bool {
+	k.mutex.RLock()
+	defer k.mutex.RUnlock()
+
+	return len(k.buf) == 0 && len(k.macroKeys) == 0
+}
+
+// IsEOF returns true if the input stream has reached the end.
+func (k *Keys) IsEOF() bool {
+	k.mutex.RLock()
+	defer k.mutex.RUnlock()
+
+	return k.eof
+}
+
+// ReadError returns the first non-EOF input failure observed while reading keys
+// (for instance a revoked tty), or nil. Async-refresh wakes are not errors and
+// are never reported here. The main loop uses this to exit cleanly instead of
+// spinning on an unrecoverable input stream.
+func (k *Keys) ReadError() error {
+	k.mutex.RLock()
+	defer k.mutex.RUnlock()
+
+	return k.readErr
 }
 
 // PeekKey returns the first key in the stack, without removing it.
@@ -125,7 +186,7 @@ func PeekKey(keys *Keys) (key byte, empty bool) {
 	case len(keys.buf) > 0:
 		key = keys.buf[0]
 	case len(keys.macroKeys) > 0:
-		key = byte(keys.macroKeys[0])
+		key = byte(keys.macroKeys[0]) //nolint:gosec // G115: byte-keyed API; macro keys are control bytes, truncation is intentional.
 	default:
 		return byte(0), true
 	}
@@ -141,7 +202,7 @@ func PopKey(keys *Keys) (key byte, empty bool) {
 		key = keys.buf[0]
 		keys.buf = keys.buf[1:]
 	case len(keys.macroKeys) > 0:
-		key = byte(keys.macroKeys[0])
+		key = byte(keys.macroKeys[0]) //nolint:gosec // G115: byte-keyed API; macro keys are control bytes, truncation is intentional.
 		keys.macroKeys = keys.macroKeys[1:]
 	default:
 		return byte(0), true
@@ -229,7 +290,7 @@ func PopForce(keys *Keys) (key byte, empty bool) {
 		key = keys.buf[0]
 		keys.buf = keys.buf[1:]
 	case len(keys.macroKeys) > 0:
-		key = byte(keys.macroKeys[0])
+		key = byte(keys.macroKeys[0]) //nolint:gosec // G115: byte-keyed API; macro keys are control bytes, truncation is intentional.
 		keys.macroKeys = keys.macroKeys[1:]
 	default:
 		return byte(0), true
@@ -259,9 +320,14 @@ func FlushUsed(keys *Keys) {
 	defer keys.mutex.Unlock()
 }
 
+// Read drains the currently buffered pending keys.
 func (k *Keys) Read() []byte {
+	k.mutex.Lock()
+	defer k.mutex.Unlock()
+
 	buf := k.buf
-	k.buf = []byte{}
+	k.buf = nil
+
 	return buf
 }
 
@@ -269,15 +335,15 @@ func (k *Keys) Read() []byte {
 // returns them instead of storing them in the stack, along with
 // an indication on whether this key is an escape/abort one.
 func (k *Keys) ReadKey() (key rune, isAbort bool) {
-	k.mutex.Lock()
+	k.mutex.RLock()
 	k.keysOnce = make(chan []byte)
 	k.reading = true
-	k.mutex.Unlock()
+	k.mutex.RUnlock()
 
 	defer func() {
-		k.mutex.Lock()
+		k.mutex.RLock()
 		k.reading = false
-		k.mutex.Unlock()
+		k.mutex.RUnlock()
 	}()
 
 	switch {
@@ -287,9 +353,28 @@ func (k *Keys) ReadKey() (key rune, isAbort bool) {
 
 	case k.waiting:
 		buf := <-k.keysOnce
+		if len(buf) == 0 {
+			return rune(0), true
+		}
+
 		key = []rune(string(buf))[0]
 	default:
-		buf, _ := k.readInputFiltered()
+		// Read until we get an actual key: ignore async-refresh wakes
+		// (errInputWake) and empty reads, which carry no key to return.
+		var buf []byte
+		for len(buf) == 0 {
+			b, err := k.readInputFiltered()
+			if err != nil && !errors.Is(err, errInputWake) {
+				break
+			}
+
+			buf = b
+		}
+
+		if len(buf) == 0 {
+			return rune(0), true
+		}
+
 		key = []rune(string(buf))[0]
 	}
 
@@ -315,7 +400,7 @@ func (k *Keys) Pop() (key byte, empty bool) {
 		key = k.buf[0]
 		k.buf = k.buf[1:]
 	case len(k.macroKeys) > 0:
-		key = byte(k.macroKeys[0])
+		key = byte(k.macroKeys[0]) //nolint:gosec // G115: byte-keyed API; macro keys are control bytes, truncation is intentional.
 		k.macroKeys = k.macroKeys[1:]
 	default:
 		return byte(0), true
@@ -351,16 +436,19 @@ func (k *Keys) Feed(begin bool, keys ...rune) {
 	}
 }
 
-// IsReading returns true if the keys system is currently reading input
+// IsReading returns true if the keys system is currently reading input.
 func (k *Keys) IsReading() bool {
 	k.mutex.RLock()
 	defer k.mutex.RUnlock()
+
 	return k.reading
 }
 
+// IsWaiting returns true if the keys system is currently waiting for input.
 func (k *Keys) IsWaiting() bool {
 	k.mutex.RLock()
 	defer k.mutex.RUnlock()
+
 	return k.waiting
 }
 
@@ -368,58 +456,62 @@ func (k *Keys) IsWaiting() bool {
 func (k *Keys) HasPendingInput() bool {
 	k.mutex.RLock()
 	defer k.mutex.RUnlock()
+
 	return len(k.buf) > 0
 }
 
-// IsEOF returns true if the input stream has reached the end.
-func (k *Keys) IsEOF() bool {
-	k.mutex.RLock()
-	defer k.mutex.RUnlock()
-	return k.eof
-}
-
-// ReadUntilSequence reads bytes from the key buffer and stdin until the
-// end sequence is found. Returns all content before the end sequence.
-// The end sequence itself is consumed and discarded.
-// Used by bracketed paste to read until \e[201~.
-const maxPasteSize = 1 << 20 // 1MB safety limit
-
+// ReadUntilSequence reads bytes from the key buffer and input reader until the
+// end sequence is found. The end sequence itself is consumed and discarded.
 func (k *Keys) ReadUntilSequence(end []byte) []byte {
+	if len(end) == 0 {
+		return nil
+	}
+
 	var result []byte
 
 	for {
-		// Check if the end sequence is in the current buffer
+		k.mutex.Lock()
+		if len(k.macroKeys) > 0 {
+			k.buf = append(k.buf, []byte(string(k.macroKeys))...)
+			k.macroKeys = nil
+		}
 		if idx := bytes.Index(k.buf, end); idx >= 0 {
 			result = append(result, k.buf[:idx]...)
 			k.buf = k.buf[idx+len(end):]
+			k.mutex.Unlock()
 			return result
 		}
 
-		// Safety limit to prevent infinite reads
 		if len(result)+len(k.buf) > maxPasteSize {
 			result = append(result, k.buf...)
 			k.buf = nil
+			k.mutex.Unlock()
 			return result
 		}
 
-		// Keep buffer tail that might contain partial end sequence match
 		safe := len(k.buf) - len(end) + 1
 		if safe > 0 {
 			result = append(result, k.buf[:safe]...)
 			k.buf = k.buf[safe:]
 		}
+		k.mutex.Unlock()
 
-		// Read more from stdin
 		newKeys, err := k.readInputFiltered()
 		if err != nil {
+			k.mutex.Lock()
 			result = append(result, k.buf...)
 			k.buf = nil
+			k.mutex.Unlock()
 			return result
 		}
 
+		k.mutex.Lock()
 		k.buf = append(k.buf, newKeys...)
+		k.mutex.Unlock()
 	}
 }
+
+const maxPasteSize = 1 << 20
 
 func (k *Keys) extractCursorPos(keys []byte) (cursor, remain []byte) {
 	if !rxRcvCursorPos.Match(keys) {

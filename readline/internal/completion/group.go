@@ -1,9 +1,8 @@
 package completion
 
 import (
-	"golang.org/x/exp/slices"
 	"math"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -54,7 +53,7 @@ func (e *Engine) newCompletionGroup(comps Values, tag string, vals RawValues, de
 
 	// Global actions to take on all values.
 	if !grp.noSort {
-		sort.Stable(vals)
+		vals.sortStable()
 	}
 
 	// Initial processing of our assigned values:
@@ -124,9 +123,8 @@ func (g *group) initCompletionsGrid(comps RawValues) {
 	}
 
 	pairLength := g.longestValueDescribed(comps)
-	if pairLength > g.termWidth {
-		pairLength = g.termWidth
-	}
+	pairLength = min(g.termWidth, pairLength)
+
 	maxColumns := g.termWidth / pairLength
 	if g.list || maxColumns < 0 {
 		maxColumns = 1
@@ -156,7 +154,6 @@ func (g *group) initCompletionAliased(domains []Candidate) {
 func (g *group) createDescribedRows(values []Candidate) ([][]Candidate, []string) {
 	descriptionMap := make(map[string][]Candidate)
 	uniqueDescriptions := make([]string, 0)
-	rows := make([][]Candidate, 0)
 
 	// Separate duplicates and store them.
 	for i, description := range values {
@@ -169,6 +166,8 @@ func (g *group) createDescribedRows(values []Candidate) ([][]Candidate, []string
 	}
 
 	// Sorting helps with easier grids.
+	rows := make([][]Candidate, 0, len(uniqueDescriptions))
+
 	for _, description := range uniqueDescriptions {
 		row := descriptionMap[description]
 		rows = append(rows, row)
@@ -353,9 +352,8 @@ func (g *group) trimDisplay(comp Candidate, pad, col int) (candidate, padded str
 	// Get the allowed length for this column.
 	// The display can never be longer than terminal width.
 	maxDisplayWidth := g.columnsWidth[col] + 1
-	if maxDisplayWidth > g.termWidth {
-		maxDisplayWidth = g.termWidth
-	}
+	maxDisplayWidth = min(g.termWidth, maxDisplayWidth)
+
 	val = sanitizer.Replace(val)
 
 	if comp.displayLen > maxDisplayWidth {
@@ -412,10 +410,7 @@ func (g *group) getPad(value Candidate, columnIndex int, desc bool) int {
 	// to the terminal size: we are not really sure
 	// of where offsets might be set in the code...
 	column := columns[columnIndex]
-	if column > g.termWidth-1 {
-		column = g.termWidth - 1
-	}
-
+	column = min(g.termWidth-1, column)
 	padding := column - valLen
 
 	if padding < 0 {
@@ -636,7 +631,7 @@ func createGrid(values []Candidate, rowCount, maxColumns int) [][]Candidate {
 
 	grid := make([][]Candidate, rowCount)
 
-	for i := 0; i < rowCount; i++ {
+	for i := range rowCount {
 		grid[i] = createRow(values, maxColumns, i)
 	}
 
@@ -646,10 +641,7 @@ func createGrid(values []Candidate, rowCount, maxColumns int) [][]Candidate {
 func createRow(domains []Candidate, maxColumns, rowIndex int) []Candidate {
 	rowStart := rowIndex * maxColumns
 	rowEnd := (rowIndex + 1) * maxColumns
-
-	if rowEnd > len(domains) {
-		rowEnd = len(domains)
-	}
+	rowEnd = min(len(domains), rowEnd)
 
 	return domains[rowStart:rowEnd]
 }

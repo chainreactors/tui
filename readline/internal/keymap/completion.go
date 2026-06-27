@@ -1,7 +1,7 @@
 package keymap
 
 import (
-	"golang.org/x/exp/slices"
+	"slices"
 
 	"github.com/chainreactors/tui/readline/inputrc"
 )

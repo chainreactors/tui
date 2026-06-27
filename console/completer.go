@@ -1,30 +1,23 @@
 package console
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
-	"os"
-	"regexp"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/carapace-sh/carapace"
 	"github.com/carapace-sh/carapace/pkg/style"
 	completer "github.com/carapace-sh/carapace/pkg/x"
-	"github.com/carapace-sh/carapace/pkg/xdg"
+	"github.com/chainreactors/tui/readline"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/chainreactors/tui/readline"
+	"github.com/chainreactors/tui/console/internal/completion"
+	"github.com/chainreactors/tui/console/internal/line"
 )
 
-func (c *Console) complete(line []rune, pos int) (comps readline.Completions) {
+func (c *Console) complete(input []rune, pos int) (comps readline.Completions) {
 	menu := c.activeMenu()
-	// NOTE: Cobra command parsing state is mutable and can leak across
-	// completion invocations (e.g., ArgsLenAtDash). If carapace panics,
-	// we recover to avoid taking down the whole interactive shell.
 	defer func() {
 		if r := recover(); r != nil {
 			comps = readline.CompleteMessage(fmt.Sprintf("completion error: %v", r))
@@ -35,27 +28,12 @@ func (c *Console) complete(line []rune, pos int) (comps readline.Completions) {
 	// Ensure the carapace library is called so that the function
 	// completer.Complete() variable is correctly initialized before use.
 	carapace.Gen(menu.Command)
-
-	// Hide internal _carapace subcommands before completion so they
-	// never appear as candidates.
 	hideCarapaceCommands(menu.Command)
 
 	// Split the line as shell words, only using
 	// what the right buffer (up to the cursor)
-	args, prefixComp, prefixLine := splitArgs(line, pos)
-
-	// Cobra/pflag parsing state is mutable: both real command executions and
-	// carapace completion parsing will mark flags as Changed and record dash state.
-	//
-	// If we keep reusing the same cobra command tree, this state can leak into
-	// subsequent completion calls and make the UI appear "stale" (e.g., some flags
-	// disappear because they are considered already set). Reset the state for the
-	// current command path before completing.
+	args, prefixComp, prefixLine := completion.SplitArgs(input, pos)
 	resetFlagParsingState(menu.Command, args)
-
-	// pflag doesn't reset ArgsLenAtDash between parses, so a prior execution with a bare
-	// `--` can permanently break flag completion (carapace will think it's after `--`).
-	// Reset the flag parsing dash state for the current command path before completing.
 	resetArgsLenAtDash(menu.Command, args)
 
 	// Prepare arguments for the carapace completer
@@ -64,35 +42,33 @@ func (c *Console) complete(line []rune, pos int) (comps readline.Completions) {
 
 	// Call the completer with our current command context.
 	completions, err := completer.Complete(menu.Command, args...)
-	if err != nil {
-		// If carapace/cobra state got into a bad state, reset the menu commands so
-		// subsequent completion attempts do not keep failing.
-		menu.resetPreRun()
-	}
 
 	// The completions are never nil: fill out our own object
 	// with everything it contains, regardless of errors.
 	raw := make([]readline.Completion, 0, len(completions.Values))
-	ansiEscape := regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-	for _, val := range completions.Values.Decolor() {
-		val.Value = ansiEscape.ReplaceAllString(val.Value, "")
-
-		// Filter out carapace internal commands from completion candidates.
+	for _, val := range completions.Values {
 		if strings.TrimSpace(val.Value) == "_carapace" {
 			continue
 		}
 
 		comp := readline.Completion{
-			Value:       unescapeValue(prefixComp, prefixLine, val.Value),
+			Value:       line.UnescapeValue(prefixComp, prefixLine, val.Value),
 			Display:     val.Display,
 			Description: val.Description,
-			Style:       val.Style,
+			Style:       style.SGR(val.Style),
 			Tag:         val.Tag,
 		}
 
 		if !completions.Nospace.Matches(val.Value) {
 			comp.Value = val.Value + " "
+		}
+
+		// Remove short/long flags grouping
+		// join to single tag group for classic zsh side-by-side view
+		switch val.Tag {
+		case "shorthand flags", "longhand flags":
+			comp.Tag = "flags"
 		}
 
 		raw = append(raw, comp)
@@ -112,6 +88,7 @@ func (c *Console) complete(line []rune, pos int) (comps readline.Completions) {
 	// If any errors arose from the completion call itself.
 	if err != nil {
 		comps = readline.CompleteMessage("failed to load config: " + err.Error())
+		menu.resetPreRun()
 	}
 
 	// Completion status/errors
@@ -129,20 +106,16 @@ func (c *Console) complete(line []rune, pos int) (comps readline.Completions) {
 	// for in our completions, add it to all of them.
 	comps = comps.Prefix(prefixComp)
 	comps.PREFIX = prefixLine
+	c.setInlineSuggestion(input, pos, comps)
 
-	// Set inline suggestion (fish-style gray text)
-	c.setInlineSuggestion(line, pos, comps)
-
-	// Reset state for the next call.
-	//
-	// Only clear carapace storage when commands are regenerated per completion
-	// invocation (menu.SetCommands). If the command tree is reused, clearing the
-	// global carapace storage would drop all registered completions.
+	// Finally, reset our command tree for the next call. Only the commands need
+	// regenerating here: the prompt is already bound and no command output was
+	// produced, so the full resetPreRun would just be wasted work per keystroke.
+	// (resetCommands already re-hides filtered commands.)
 	if menu.cmds != nil {
 		completer.ClearStorage()
 	}
-	menu.resetPreRun()
-	menu.hideFilteredCommands(menu.Command)
+	menu.resetCommands()
 
 	return comps
 }
@@ -153,10 +126,7 @@ func resetFlagParsingState(root *cobra.Command, args []string) {
 	}
 
 	target := findCompletionTarget(root, args)
-
-	// Ensure persistent flags are merged so we reset the full flag set (local + parents).
 	_ = target.LocalFlags()
-
 	resetFlagsDefaults(target)
 }
 
@@ -166,8 +136,6 @@ func resetArgsLenAtDash(root *cobra.Command, args []string) {
 	}
 
 	target := findCompletionTarget(root, args)
-
-	// Reset along the parent chain because persistent flags can live on parents.
 	for cmd := target; cmd != nil; cmd = cmd.Parent() {
 		resetFlagSetArgsLenAtDash(cmd.Flags(), cmd.DisplayName())
 		resetFlagSetArgsLenAtDash(cmd.PersistentFlags(), cmd.DisplayName())
@@ -178,13 +146,13 @@ func resetFlagSetArgsLenAtDash(fs *pflag.FlagSet, name string) {
 	if fs == nil {
 		return
 	}
+
 	fs.Init(name, pflag.ContinueOnError)
 }
 
 func findCompletionTarget(root *cobra.Command, args []string) *cobra.Command {
 	cmd := root
 	for _, arg := range args {
-		// Stop at flags (including the `--` terminator): command path is complete.
 		if arg == "--" || strings.HasPrefix(arg, "-") {
 			break
 		}
@@ -195,6 +163,7 @@ func findCompletionTarget(root *cobra.Command, args []string) *cobra.Command {
 		}
 		cmd = next
 	}
+
 	return cmd
 }
 
@@ -202,14 +171,19 @@ func findSubcommand(cmd *cobra.Command, name string) *cobra.Command {
 	if cmd == nil {
 		return nil
 	}
+
 	for _, sub := range cmd.Commands() {
 		if sub.Name() == name || sub.HasAlias(name) {
 			return sub
 		}
 	}
+
 	return nil
 }
 
+// justifyCommandComps justifies the descriptions for all commands in all groups
+// to the same level, for prettiness. Also, removes any coloring from them, as currently,
+// the carapace engine does add coloring to each group, and we don't want this.
 func (c *Console) justifyCommandComps(comps readline.Completions) readline.Completions {
 	justified := []string{}
 
@@ -219,6 +193,7 @@ func (c *Console) justifyCommandComps(comps readline.Completions) readline.Compl
 		}
 
 		justified = append(justified, comp.Tag)
+		comp.Style = "" // Remove command coloring
 
 		return comp
 	})
@@ -231,16 +206,17 @@ func (c *Console) justifyCommandComps(comps readline.Completions) readline.Compl
 }
 
 // setInlineSuggestion sets a fish-style inline suggestion based on completion candidates.
-func (c *Console) setInlineSuggestion(line []rune, pos int, completions readline.Completions) {
-	// Only show suggestion when cursor is at end of line
-	if pos != len(line) {
+func (c *Console) setInlineSuggestion(input []rune, pos int, completions readline.Completions) {
+	if c.shell == nil {
+		return
+	}
+
+	if pos != len(input) {
 		c.shell.ClearInlineSuggestion()
 		return
 	}
 
-	currentLine := string(line)
-
-	// No completions, clear suggestion
+	currentLine := string(input)
 	var values []string
 	completions.EachValue(func(comp readline.Completion) readline.Completion {
 		values = append(values, comp.Value)
@@ -251,10 +227,8 @@ func (c *Console) setInlineSuggestion(line []rune, pos int, completions readline
 		return
 	}
 
-	// Get the current word prefix for matching
 	prefix := completions.PREFIX
 	if prefix == "" || !strings.HasSuffix(currentLine, prefix) {
-		// Calculate prefix from the last word
 		lastSpace := strings.LastIndexAny(currentLine, " \t")
 		if lastSpace >= 0 {
 			prefix = currentLine[lastSpace+1:]
@@ -264,7 +238,7 @@ func (c *Console) setInlineSuggestion(line []rune, pos int, completions readline
 	}
 
 	ignoreCase := false
-	if c.shell != nil && c.shell.Config != nil {
+	if c.shell.Config != nil {
 		ignoreCase = c.shell.Config.GetBool("completion-ignore-case")
 	}
 
@@ -273,7 +247,6 @@ func (c *Console) setInlineSuggestion(line []rune, pos int, completions readline
 		matchPrefix = strings.ToLower(prefix)
 	}
 
-	// Collect matching values
 	var matchingValues []string
 	for _, value := range values {
 		value = strings.TrimRightFunc(value, unicode.IsSpace)
@@ -290,342 +263,108 @@ func (c *Console) setInlineSuggestion(line []rune, pos int, completions readline
 			matchingValues = append(matchingValues, value)
 		}
 	}
-
 	if len(matchingValues) == 0 {
 		c.shell.ClearInlineSuggestion()
 		return
 	}
 
-	var suggestion string
-	if len(matchingValues) == 1 {
-		// Single candidate: use it directly
-		suggestion = matchingValues[0]
-	} else {
-		// Multiple candidates: compute common prefix
+	suggestion := matchingValues[0]
+	if len(matchingValues) > 1 {
 		suggestion = longestCommonPrefix(matchingValues, ignoreCase)
 	}
 
-	// Only show if suggestion is longer than current prefix
 	if len(suggestion) <= len(prefix) {
 		c.shell.ClearInlineSuggestion()
 		return
 	}
 
-	// Build full line suggestion using the current line prefix.
-	fullSuggestion := currentLine + suggestion[len(prefix):]
-	c.shell.SetInlineSuggestion(fullSuggestion)
+	c.shell.SetInlineSuggestion(currentLine + suggestion[len(prefix):])
 }
 
-// longestCommonPrefix returns the longest common prefix of a slice of strings.
 func longestCommonPrefix(strs []string, ignoreCase bool) string {
 	if len(strs) == 0 {
 		return ""
 	}
+
 	prefix := []rune(strs[0])
 	comparePrefix := []rune(strs[0])
 	if ignoreCase {
 		comparePrefix = []rune(strings.ToLower(strs[0]))
 	}
+
 	for _, s := range strs[1:] {
 		runes := []rune(s)
 		compareRunes := runes
 		if ignoreCase {
 			compareRunes = []rune(strings.ToLower(s))
 		}
+
 		i := 0
 		for i < len(comparePrefix) && i < len(compareRunes) && comparePrefix[i] == compareRunes[i] {
 			i++
 		}
+
 		prefix = prefix[:i]
 		comparePrefix = comparePrefix[:i]
 		if len(comparePrefix) == 0 {
 			break
 		}
 	}
+
 	return string(prefix)
 }
 
-func (c *Console) defaultStyleConfig() {
-	// If carapace config file is found, just return.
-	if dir, err := xdg.UserConfigDir(); err == nil {
-		_, err := os.Stat(fmt.Sprintf("%v/carapace/styles.json", dir))
-		if err == nil {
-			return
-		}
+// highlightSyntax - Entrypoint to all input syntax highlighting in the Wiregost console.
+func (c *Console) highlightSyntax(input []rune) string {
+	// Serve a memoized result when the input has not changed since the last
+	// render. The cache is cleared whenever the command tree is regenerated,
+	// so a stale tree can never produce a stale highlight.
+	key := string(input)
+	if cached := c.hlCache.Load(); cached != nil && cached.input == key {
+		return cached.output
 	}
 
-	// Overwrite all default styles for color
-	for i := 1; i < 13; i++ {
-		styleStr := fmt.Sprintf("carapace.Highlight%d", i)
-		style.Set(styleStr, "bright-white")
-	}
+	highlighted := c.computeHighlight(input)
+	c.hlCache.Store(&highlightCache{input: key, output: highlighted})
 
-	// Overwrite all default styles for flags
-	style.Set("carapace.FlagArg", "bright-white")
-	style.Set("carapace.FlagMultiArg", "bright-white")
-	style.Set("carapace.FlagNoArg", "bright-white")
-	style.Set("carapace.FlagOptArg", "bright-white")
+	return highlighted
 }
 
-// splitArgs splits the line in valid words, prepares them in various ways before calling
-// the completer with them, and also determines which parts of them should be used as
-// prefixes, in the completions and/or in the line.
-func splitArgs(line []rune, pos int) (args []string, prefixComp, prefixLine string) {
-	line = line[:pos]
-
-	// Remove all colors from the string
-	line = []rune(strip(string(line)))
-
-	// Split the line as shellwords, return them if all went fine.
-	args, remain, err := splitCompWords(string(line))
-
-	// We might have either no error and args, or no error and
-	// the cursor ready to complete a new word (last character
-	// in line is a space).
-	// In some of those cases we append a single dummy argument
-	// for the completer to understand we want a new word comp.
-	mustComplete, args, remain := mustComplete(line, args, remain, err)
-	if mustComplete {
-		return sanitizeArgs(args), "", remain
-	}
-
-	// But the completion candidates themselves might need slightly
-	// different prefixes, for an optimal completion experience.
-	arg, prefixComp, prefixLine := adjustQuotedPrefix(remain, err)
-
-	// The remainder is everything following the open charater.
-	// Pass it as is to the carapace completion engine.
-	args = append(args, arg)
-
-	return sanitizeArgs(args), prefixComp, prefixLine
-}
-
-func mustComplete(line []rune, args []string, remain string, err error) (bool, []string, string) {
-	dummyArg := ""
-
-	// Empty command line, complete the root command.
-	if len(args) == 0 || len(line) == 0 {
-		return true, append(args, dummyArg), remain
-	}
-
-	// If we have an error, we must handle it later.
+func (c *Console) computeHighlight(input []rune) string {
+	// Split the line as shellwords
+	args, unprocessed, err := line.Split(string(input), true)
 	if err != nil {
-		return false, args, remain
+		args = append(args, unprocessed)
 	}
 
-	lastChar := line[len(line)-1]
+	done := make([]string, 0)          // List of processed words, append to
+	remain := args                     // List of words to process, draw from
+	trimmed := line.TrimSpaces(remain) // Match stuff against trimmed words
 
-	// No remain and a trailing space means we want to complete
-	// for the next word, except when this last space was escaped.
-	if remain == "" && unicode.IsSpace(lastChar) {
-		if strings.HasSuffix(string(line), "\\ ") {
-			return true, args, args[len(args)-1]
-		}
-
-		return true, append(args, dummyArg), remain
+	// Highlight the root command when found.
+	cmd, _, _ := c.activeMenu().Find(trimmed)
+	if cmd != nil {
+		done, remain = line.HighlightCommand(done, args, c.activeMenu().Command, c.cmdHighlight)
 	}
 
-	// Else there is a character under the cursor, which means we are
-	// in the middle/at the end of a posentially completed word.
-	return true, args, remain
+	// Highlight command flags
+	done, remain = line.HighlightCommandFlags(done, remain, c.flagHighlight)
+
+	// Done with everything, add remainind, non-processed words
+	done = append(done, remain...)
+
+	// Join all words.
+	highlighted := strings.Join(done, "")
+
+	return highlighted
 }
 
-func adjustQuotedPrefix(remain string, err error) (arg, comp, line string) {
-	arg = remain
-
-	switch {
-	case errors.Is(err, errUnterminatedDoubleQuote):
-		comp = "\""
-		line = comp + arg
-	case errors.Is(err, errUnterminatedSingleQuote):
-		comp = "'"
-		line = comp + arg
-	case errors.Is(err, errUnterminatedEscape):
-		arg = strings.ReplaceAll(arg, "\\", "")
-	}
-
-	return arg, comp, line
-}
-
-// sanitizeArg unescapes a restrained set of characters.
-func sanitizeArgs(args []string) (sanitized []string) {
-	for _, arg := range args {
-		arg = replacer.Replace(arg)
-		sanitized = append(sanitized, arg)
-	}
-
-	return sanitized
-}
-
-// when the completer has returned us some completions, we sometimes
-// needed to post-process them a little before passing them to our shell.
-func unescapeValue(prefixComp, prefixLine, val string) string {
-	quoted := strings.HasPrefix(prefixLine, "\"") ||
-		strings.HasPrefix(prefixLine, "'")
-
-	if quoted {
-		val = strings.ReplaceAll(val, "\\ ", " ")
-	}
-
-	return val
-}
-
-// split has been copied from go-shellquote and slightly modified so as to also
-// return the remainder when the parsing failed because of an unterminated quote.
-func splitCompWords(input string) (words []string, remainder string, err error) {
-	var buf bytes.Buffer
-	words = make([]string, 0)
-
-	for len(input) > 0 {
-		// skip any splitChars at the start
-		char, read := utf8.DecodeRuneInString(input)
-		if strings.ContainsRune(splitChars, char) {
-			input = input[read:]
-			continue
-		} else if char == escapeChar {
-			// Look ahead for escaped newline so we can skip over it
-			next := input[read:]
-			if len(next) == 0 {
-				remainder = string(escapeChar)
-				err = errUnterminatedEscape
-
-				return words, remainder, err
-			}
-
-			c2, l2 := utf8.DecodeRuneInString(next)
-			if c2 == '\n' {
-				input = next[l2:]
-				continue
-			}
-		}
-
-		var word string
-
-		word, input, err = splitCompWord(input, &buf)
-		if err != nil {
-			return words, word + input, err
-		}
-
-		words = append(words, word)
-	}
-
-	return words, remainder, nil
-}
-
-// splitWord has been modified to return the remainder of the input (the part that has not been
-// added to the buffer) even when an error is returned.
-func splitCompWord(input string, buf *bytes.Buffer) (word string, remainder string, err error) {
-	buf.Reset()
-
-raw:
-	{
-		cur := input
-		for len(cur) > 0 {
-			char, read := utf8.DecodeRuneInString(cur)
-			cur = cur[read:]
-			switch {
-			case char == singleChar:
-				buf.WriteString(input[0 : len(input)-len(cur)-read])
-				input = cur
-				goto single
-			case char == doubleChar:
-				buf.WriteString(input[0 : len(input)-len(cur)-read])
-				input = cur
-				goto double
-			case char == escapeChar:
-				buf.WriteString(input[0 : len(input)-len(cur)-read])
-				buf.WriteRune(char)
-				input = cur
-				goto escape
-			case strings.ContainsRune(splitChars, char):
-				buf.WriteString(input[0 : len(input)-len(cur)-read])
-				return buf.String(), cur, nil
-			}
-		}
-		if len(input) > 0 {
-			buf.WriteString(input)
-			input = ""
-		}
-		goto done
-	}
-
-escape:
-	{
-		if len(input) == 0 {
-			input = buf.String() + input
-			return "", input, errUnterminatedEscape
-		}
-		c, l := utf8.DecodeRuneInString(input)
-		if c != '\n' {
-			buf.WriteString(input[:l])
-		}
-		input = input[l:]
-	}
-
-	goto raw
-
-single:
-	{
-		i := strings.IndexRune(input, singleChar)
-		if i == -1 {
-			return "", input, errUnterminatedSingleQuote
-		}
-		buf.WriteString(input[0:i])
-		input = input[i+1:]
-		goto raw
-	}
-
-double:
-	{
-		cur := input
-		for len(cur) > 0 {
-			c, read := utf8.DecodeRuneInString(cur)
-			cur = cur[read:]
-			switch c {
-			case doubleChar:
-				buf.WriteString(input[0 : len(input)-len(cur)-read])
-				input = cur
-				goto raw
-			case escapeChar:
-				// bash only supports certain escapes in double-quoted strings
-				char2, l2 := utf8.DecodeRuneInString(cur)
-				cur = cur[l2:]
-				if strings.ContainsRune(doubleEscapeChars, char2) {
-					buf.WriteString(input[0 : len(input)-len(cur)-read-l2])
-
-					if char2 != '\n' {
-						buf.WriteRune(char2)
-					}
-					input = cur
-				}
-			}
-		}
-
-		return "", input, errUnterminatedDoubleQuote
-	}
-
-done:
-	return buf.String(), input, nil
-}
-
-const ansi = "[\u001B\u009B][[\\]()#;?]*(?:(?:(?:[a-zA-Z\\d]*(?:;[a-zA-Z\\d]*)*)?\u0007)|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PRZcf-ntqry=><~]))"
-
-var re = regexp.MustCompile(ansi)
-
-// strip removes all ANSI escaped color sequences in a string.
-func strip(str string) string {
-	return re.ReplaceAllString(str, "")
-}
-
-var replacer = strings.NewReplacer(
-	"\n", ` `,
-	"\t", ` `,
-	"\\ ", " ", // User-escaped spaces in words.
-)
-
-// hideCarapaceCommands recursively hides all _carapace internal
-// subcommands so they never appear in completion candidates or help.
+// hideCarapaceCommands recursively hides all _carapace internal subcommands.
 func hideCarapaceCommands(root *cobra.Command) {
+	if root == nil {
+		return
+	}
+
 	for _, cmd := range root.Commands() {
 		if cmd.Name() == "_carapace" {
 			cmd.Hidden = true

@@ -33,9 +33,13 @@ func (rl *Shell) InsertPastedText(text string) {
 	if text == "" {
 		return
 	}
-	rl.History.Save()
+	if rl.History != nil {
+		rl.History.Save()
+	}
 	rl.cursor.InsertAt([]rune(text)...)
-	rl.Display.Refresh()
+	if rl.Display != nil {
+		rl.Display.Refresh()
+	}
 }
 
 // HandleBracketedPastePending handles bytes that remain after an Escape binding

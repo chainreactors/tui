@@ -9,23 +9,23 @@
 
 <!-- Badges -->
 <p align="center">
-  <a href="https://github.com/reeflective/console/actions/workflows/go.yml">
-    <img src="https://github.com/reeflective/console/actions/workflows/go.yml/badge.svg?branch=main"
+  <a href="https://github.com/chainreactors/tui/console/actions/workflows/go.yml">
+    <img src="https://github.com/chainreactors/tui/console/actions/workflows/go.yml/badge.svg?branch=main"
       alt="Github Actions (workflows)" />
   </a>
 
-  <a href="https://github.com/reeflective/console">
+  <a href="https://github.com/chainreactors/tui/console">
     <img src="https://img.shields.io/github/go-mod/go-version/reeflective/console.svg"
       alt="Go module version" />
   </a>
 
-  <a href="https://pkg.go.dev/github.com/reeflective/console">
+  <a href="https://pkg.go.dev/github.com/chainreactors/tui/console">
     <img src="https://img.shields.io/badge/godoc-reference-blue.svg"
       alt="GoDoc reference" />
   </a>
 
-  <a href="https://goreportcard.com/report/github.com/reeflective/console">
-    <img src="https://goreportcard.com/badge/github.com/reeflective/console"
+  <a href="https://goreportcard.com/report/github.com/chainreactors/tui/console">
+    <img src="https://goreportcard.com/badge/github.com/chainreactors/tui/console"
       alt="Go Report Card" />
   </a>
 
@@ -40,7 +40,7 @@
   </a>
 </p>
 
-Console is an all-in-one console application library built on top of a [readline](https://github.com/reeflective/readline) shell and using [Cobra](https://github.com/spf13/cobra) commands.
+Console is an all-in-one console application library built on top of a [readline](https://github.com/chainreactors/tui/readline) shell and using [Cobra](https://github.com/spf13/cobra) commands.
 It aims to provide users with a modern interface at at minimal cost while allowing them to focus on developing
 their commands and application core: the console will then transparently interface with these commands, and provide
 the various features below almost for free.
@@ -55,7 +55,7 @@ the various features below almost for free.
 - Bind handlers to special interrupt errors (eg. `CtrlC`/`CtrlD`), per menu.
 
 ### Shell interface
-- Shell is powered by a [readline](https://github.com/reeflective/readline) instance, with full `inputrc` support and extended functionality.
+- Shell is powered by a [readline](https://github.com/chainreactors/tui/readline) instance, with full `inputrc` support and extended functionality.
 - All features of readline are supported in the console. It also allows the console to give:
 - Configurable bind keymaps, commands and options, sane defaults, and per-application configuration.
 - Out-of-the-box, advanced completions for commands, flags, positional and flag arguments.
@@ -71,23 +71,23 @@ the various features below almost for free.
 
 ## Documentation
 
-You can install and use the [example application console](https://github.com/reeflective/console/tree/main/example). This example application
+You can install and use the [example application console](https://github.com/chainreactors/tui/console/tree/main/example). This example application
 will give you a taste of the behavior and supported features. The following documentation
-is also available in the [wiki](https://github.com/reeflective/console/wiki):
+is also available in the [wiki](https://github.com/chainreactors/tui/console/wiki):
 
-* [Getting started](https://github.com/reeflective/console/wiki/Getting-Started)
-* [Menus](https://github.com/reeflective/console/wiki/Menus)
-* [Prompts](https://github.com/reeflective/console/wiki/Prompts)
-* [Binding commands](https://github.com/reeflective/console/wiki/Binding-Commands)
-* [Interrupt handlers](https://github.com/reeflective/console/wiki/Interrupt-Handlers)
-* [History Sources](https://github.com/reeflective/console/wiki/History-Sources)
-* [Logging](https://github.com/reeflective/console/wiki/Logging)
-* [Readline shell](https://github.com/reeflective/readline/wiki)
-* [Other utilities](https://github.com/reeflective/console/wiki/Other-Utililites)
+* [Getting started](https://github.com/chainreactors/tui/console/wiki/Getting-Started)
+* [Menus](https://github.com/chainreactors/tui/console/wiki/Menus)
+* [Prompts](https://github.com/chainreactors/tui/console/wiki/Prompts)
+* [Binding commands](https://github.com/chainreactors/tui/console/wiki/Binding-Commands)
+* [Interrupt handlers](https://github.com/chainreactors/tui/console/wiki/Interrupt-Handlers)
+* [History Sources](https://github.com/chainreactors/tui/console/wiki/History-Sources)
+* [Logging](https://github.com/chainreactors/tui/console/wiki/Logging)
+* [Readline shell](https://github.com/chainreactors/tui/readline/wiki)
+* [Other utilities](https://github.com/chainreactors/tui/console/wiki/Other-Utililites)
 
 
 ## Showcase
-![console](https://github.com/reeflective/console/blob/assets/console.gif)
+![console](https://github.com/chainreactors/tui/console/blob/assets/console.gif)
 
 
 ## Status
@@ -99,12 +99,3 @@ The library is in a pre-release candidate status:
 
 Please open a PR or an issue if you wish to bring enhancements to it.
 Other contributions, as well as bug fixes and reviews are also welcome.
-
-
-## Possible Improvements
-
-The following is a currently moving list of possible enhancements to be made in order to reach `v1.0`:
-- [ ] Ensure to the best extent possible a thread-safe access to the command API.
-- [ ] Clearer integration/alignment of the various I/O references between raw readline and commands.
-- [ ] Clearer and sane model for asynchronous control/cancel of commands (with OnKillRun in cobra)
-- [ ] Test suite for most important or risky code paths.

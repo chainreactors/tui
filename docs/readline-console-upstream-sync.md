@@ -55,6 +55,8 @@
 - inline suggestion 对接 readline
 - `Suggestion` 兼容类型
 
+这些能力必须有回归测试覆盖。同步上游后，如果相关测试失败，优先判断是否误删/误改了本地 fork 能力，不要为了接受上游直接删除测试。
+
 ## 定期同步流程
 
 建议每月一次，或在 tui release 前执行一次。
@@ -192,6 +194,15 @@ if ($files) { gofmt -w $files }
 go mod tidy
 go test ./...
 ```
+
+重点关注 fork 回归测试：
+
+- `readline/fork_test.go`
+- `readline/terminal/fork_test.go`
+- `console/fork_test.go`
+- `console/paste_test.go`
+
+这些测试用于防止上游同步时删掉本地 terminal、paste、inline suggestion、Execute 等功能。
 
 依赖原则：
 

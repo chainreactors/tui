@@ -21,17 +21,18 @@ type (
 )
 
 type InputModel struct {
-	TextInput textinput.Model
-	Title     string
-	err       error
-	handler   func()
+	TextInput      textinput.Model
+	Title          string
+	err            error
+	handler        func()
+	handlerPending bool
 }
 
-func (m InputModel) Init() tea.Cmd {
+func (m *InputModel) Init() tea.Cmd {
 	return textinput.Blink
 }
 
-func (m InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
@@ -40,7 +41,7 @@ func (m InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEsc, tea.KeyCtrlC, tea.KeyCtrlQ:
 			return m, tea.Quit
 		case tea.KeyEnter:
-			m.handler()
+			m.handlerPending = m.handler != nil
 			return m, tea.Quit
 		}
 
@@ -54,7 +55,7 @@ func (m InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m InputModel) View() string {
+func (m *InputModel) View() string {
 	return fmt.Sprintf(
 		"%s\n\n%s\n\n",
 		m.Title,
@@ -62,17 +63,26 @@ func (m InputModel) View() string {
 	) + "\n"
 }
 
-func (m InputModel) SetHandler(handler func()) *InputModel {
+func (m *InputModel) SetHandler(handler func()) *InputModel {
 	m.handler = handler
-	return &m
+	return m
 }
 
-func (m InputModel) Run() error {
+func (m *InputModel) runPendingHandler() {
+	if !m.handlerPending || m.handler == nil {
+		return
+	}
+	m.handlerPending = false
+	m.handler()
+}
+
+func (m *InputModel) Run() error {
 	p := tea.NewProgram(m)
 	_, err := p.Run()
 	if err != nil {
 		return err
 	}
+	m.runPendingHandler()
 	fmt.Printf(HelpStyle("<Press enter to exit>\n"))
 	os.Stdin.Write([]byte("\n"))
 	ClearLines(1)

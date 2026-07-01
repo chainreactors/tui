@@ -86,6 +86,7 @@ type TableModel struct {
 	isStatic       bool
 	filtered       bool
 	handle         func()
+	handlePending  bool
 	Title          string
 	selected       table.Row
 	highlightRows  []int
@@ -122,10 +123,7 @@ func (t *TableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return t, tea.Quit
 		case tea.KeyEnter:
 			t.selected = t.GetHighlightedRow()
-			if t.handle == nil {
-				return t, tea.Quit
-			}
-			t.handleSelectedRow()
+			t.handlePending = t.handle != nil
 			return t, tea.Quit
 		}
 	}
@@ -247,6 +245,14 @@ func (t *TableModel) handleSelectedRow() {
 	t.handle()
 }
 
+func (t *TableModel) runPendingHandle() {
+	if !t.handlePending || t.handle == nil {
+		return
+	}
+	t.handlePending = false
+	t.handleSelectedRow()
+}
+
 func (t *TableModel) SetHandle(handle func()) {
 	t.handle = handle
 }
@@ -296,6 +302,7 @@ func (t *TableModel) Run() error {
 	if err != nil {
 		return err
 	}
+	t.runPendingHandle()
 	fmt.Printf(HelpStyle("<Press enter to exit>\n"))
 	os.Stdin.Write([]byte("\n"))
 	ClearLines(1)

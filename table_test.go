@@ -7,7 +7,7 @@ import (
 	"github.com/evertras/bubble-table/table"
 )
 
-func TestTableEnterDefersHandleUntilRunCompletes(t *testing.T) {
+func TestTableEnterDefersHandlerUntilRunCompletes(t *testing.T) {
 	model := NewTable([]table.Column{
 		table.NewColumn("ID", "ID", 10),
 	}, false)
@@ -16,23 +16,23 @@ func TestTableEnterDefersHandleUntilRunCompletes(t *testing.T) {
 	})
 
 	called := 0
-	model.SetHandle(func() {
+	model.SetHandler(func() {
 		called++
 	})
 
 	_, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if called != 0 {
-		t.Fatalf("handle called during Update, want deferred execution")
+		t.Fatalf("handler called during Update, want deferred execution")
 	}
-	if !model.handlePending {
-		t.Fatalf("handlePending = false, want true after enter")
+	if !model.handlerPending {
+		t.Fatalf("handlerPending = false, want true after enter")
 	}
 
-	model.runPendingHandle()
+	model.runPendingHandler()
 	if called != 1 {
-		t.Fatalf("handle call count = %d, want 1", called)
+		t.Fatalf("handler call count = %d, want 1", called)
 	}
-	if model.handlePending {
-		t.Fatalf("handlePending = true, want false after pending handle runs")
+	if model.handlerPending {
+		t.Fatalf("handlerPending = true, want false after pending handler runs")
 	}
 }

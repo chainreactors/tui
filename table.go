@@ -85,8 +85,8 @@ type TableModel struct {
 	rowsPerPage    int
 	isStatic       bool
 	filtered       bool
-	handle         func()
-	handlePending  bool
+	handler        func()
+	handlerPending bool
 	Title          string
 	selected       table.Row
 	highlightRows  []int
@@ -123,7 +123,7 @@ func (t *TableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return t, tea.Quit
 		case tea.KeyEnter:
 			t.selected = t.GetHighlightedRow()
-			t.handlePending = t.handle != nil
+			t.handlerPending = t.handler != nil
 			return t, tea.Quit
 		}
 	}
@@ -241,20 +241,16 @@ func (t *TableModel) autoFitColumns(rows []table.Row) {
 	t.table = t.table.WithColumns(newCols).WithTargetWidth(termWidth)
 }
 
-func (t *TableModel) handleSelectedRow() {
-	t.handle()
-}
-
-func (t *TableModel) runPendingHandle() {
-	if !t.handlePending || t.handle == nil {
+func (t *TableModel) runPendingHandler() {
+	if !t.handlerPending || t.handler == nil {
 		return
 	}
-	t.handlePending = false
-	t.handleSelectedRow()
+	t.handlerPending = false
+	t.handler()
 }
 
-func (t *TableModel) SetHandle(handle func()) {
-	t.handle = handle
+func (t *TableModel) SetHandler(handler func()) {
+	t.handler = handler
 }
 
 func (t *TableModel) CleanHighlight() {
@@ -302,7 +298,7 @@ func (t *TableModel) Run() error {
 	if err != nil {
 		return err
 	}
-	t.runPendingHandle()
+	t.runPendingHandler()
 	fmt.Printf(HelpStyle("<Press enter to exit>\n"))
 	os.Stdin.Write([]byte("\n"))
 	ClearLines(1)

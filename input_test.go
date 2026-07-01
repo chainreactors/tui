@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"reflect"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -31,11 +30,7 @@ func TestInputEnterDefersHandlerUntilRunCompletes(t *testing.T) {
 		t.Fatalf("handler called during Update, want deferred execution")
 	}
 
-	pending := reflect.ValueOf(model).Elem().FieldByName("handlerPending")
-	if !pending.IsValid() {
-		t.Fatalf("handlerPending field is missing")
-	}
-	if !pending.Bool() {
+	if !model.handlerPending {
 		t.Fatalf("handlerPending = false, want true after enter")
 	}
 

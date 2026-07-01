@@ -4,7 +4,7 @@ go 1.21
 
 require (
 	github.com/carapace-sh/carapace v1.7.1
-	github.com/chainreactors/tui/readline v1.1.3
+	github.com/chainreactors/tui/readline v0.0.0-20260626181537-7c0eb4b933cd
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.9
@@ -21,5 +21,3 @@ require (
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/chainreactors/tui/readline => ../readline

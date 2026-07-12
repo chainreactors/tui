@@ -24,9 +24,27 @@ var (
 	errUnterminatedEscape      = errors.New("unterminated backslash-escape")
 )
 
+type continuationState uint8
+
+// Quote states intentionally match the regular single and double quotes
+// supported by shellSplit; this console does not implement full Bash quoting.
+const (
+	continuationBare continuationState = iota
+	continuationSingleQuoted
+	continuationDoubleQuoted
+	continuationComment
+)
+
+type continuationContext struct {
+	state       continuationState
+	atWordStart bool
+}
+
 // parse is in charge of removing all comments from the input line
 // before execution, and if successfully parsed, split into words.
 func (c *Console) parse(line string) (args []string, err error) {
+	line, _ = scanLineContinuations(line)
+	line, backslashPlaceholder := protectLineEndBackslashes(line)
 
 	lineReader := strings.NewReader(line)
 	parser := syntax.NewParser(syntax.KeepComments(false))
@@ -45,7 +63,8 @@ func (c *Console) parse(line string) (args []string, err error) {
 	}
 
 	// Split the line into shell words.
-	return shellSplit(parsedLine.String())
+	parsed := strings.ReplaceAll(parsedLine.String(), backslashPlaceholder, string(escapeChar))
+	return shellSplit(parsed)
 	//return shellquote.Split(parsedLine.String())
 }
 
@@ -69,6 +88,10 @@ func shellSplit(command string) (args []string, err error) {
 // acceptMultiline determines if the line just accepted is complete (in which case
 // we should execute it), or incomplete (in which case we must read in multiline).
 func (c *Console) acceptMultiline(line []rune) (accept bool) {
+	if _, pending := scanLineContinuations(string(line)); pending {
+		return false
+	}
+
 	// Errors are either: unterminated quotes, or unterminated escapes.
 	_, _, err := split(string(line), false)
 	if err == nil {
@@ -79,15 +102,202 @@ func (c *Console) acceptMultiline(line []rune) (accept bool) {
 	switch err {
 	case errUnterminatedDoubleQuote, errUnterminatedSingleQuote:
 		return false
-	case errUnterminatedEscape:
-		if len(line) > 0 && line[len(line)-1] == '\\' {
-			return false
-		}
-
-		return true
 	}
 
 	return true
+}
+
+// scanLineContinuations normalizes completed continuation markers and reports
+// whether the final physical line ends with a pending marker. A marker consists
+// of horizontal whitespace, one unquoted backslash, and optional trailing
+// horizontal whitespace.
+func scanLineContinuations(input string) (normalized string, pending bool) {
+	var output strings.Builder
+	output.Grow(len(input))
+
+	context := continuationContext{
+		state:       continuationBare,
+		atWordStart: true,
+	}
+	start := 0
+
+	for {
+		lineEnd, newlineEnd, ok := nextPhysicalLine(input, start)
+		if !ok {
+			break
+		}
+
+		line := input[start:lineEnd]
+		marker, markerContext, continuation := explicitContinuationMarker(line, context)
+		if continuation {
+			output.WriteString(line[:marker])
+			context = markerContext
+		} else {
+			output.WriteString(input[start:newlineEnd])
+			context = scanContinuationState(line, context)
+			switch context.state {
+			case continuationComment:
+				context = continuationContext{state: continuationBare, atWordStart: true}
+			case continuationBare:
+				context.atWordStart = true
+			}
+		}
+
+		start = newlineEnd
+	}
+
+	tail := input[start:]
+	output.WriteString(tail)
+	_, _, pending = explicitContinuationMarker(tail, context)
+
+	return output.String(), pending
+}
+
+// protectLineEndBackslashes prevents the shell parser from applying POSIX
+// backslash-newline semantics to lines that do not use an explicit marker.
+// The placeholder is restored immediately after the parser removes comments.
+func protectLineEndBackslashes(input string) (protected string, placeholder string) {
+	placeholder = unusedBackslashPlaceholder(input)
+
+	var output strings.Builder
+	output.Grow(len(input))
+	start := 0
+
+	for {
+		lineEnd, newlineEnd, ok := nextPhysicalLine(input, start)
+		if !ok {
+			break
+		}
+
+		line := input[start:lineEnd]
+		end := len(line)
+		for end > 0 && isHorizontalWhitespace(line[end-1]) {
+			end--
+		}
+
+		runStart := end
+		for runStart > 0 && line[runStart-1] == '\\' {
+			runStart--
+		}
+
+		if runStart == end {
+			output.WriteString(input[start:newlineEnd])
+		} else {
+			output.WriteString(line[:runStart])
+			for i := runStart; i < end; i++ {
+				output.WriteString(placeholder)
+			}
+			output.WriteString(line[end:])
+			output.WriteString(input[lineEnd:newlineEnd])
+		}
+
+		start = newlineEnd
+	}
+
+	output.WriteString(input[start:])
+	return output.String(), placeholder
+}
+
+func unusedBackslashPlaceholder(input string) string {
+	placeholder := "\ue000"
+	for strings.Contains(input, placeholder) {
+		placeholder += "\ue001"
+	}
+	return placeholder
+}
+
+func explicitContinuationMarker(line string, initial continuationContext) (marker int, context continuationContext, ok bool) {
+	end := len(line)
+	for end > 0 && isHorizontalWhitespace(line[end-1]) {
+		end--
+	}
+
+	if end == 0 || line[end-1] != '\\' {
+		return 0, initial, false
+	}
+
+	marker = end - 1
+	if marker == 0 || !isHorizontalWhitespace(line[marker-1]) {
+		return 0, initial, false
+	}
+
+	context = scanContinuationState(line[:marker], initial)
+	if context.state != continuationBare {
+		return 0, context, false
+	}
+
+	return marker, context, true
+}
+
+func scanContinuationState(line string, context continuationContext) continuationContext {
+	for i := 0; i < len(line); i++ {
+		char := line[i]
+
+		switch context.state {
+		case continuationComment:
+			return context
+		case continuationSingleQuoted:
+			if char == '\'' {
+				context.state = continuationBare
+			}
+			continue
+		case continuationDoubleQuoted:
+			if char == '\\' && i+1 < len(line) && strings.ContainsRune(doubleEscapeChars, rune(line[i+1])) {
+				i++
+				continue
+			}
+			if char == '"' {
+				context.state = continuationBare
+			}
+			continue
+		}
+
+		switch {
+		case isHorizontalWhitespace(char), isShellControlCharacter(char):
+			context.atWordStart = true
+		case char == '\\':
+			context.atWordStart = false
+			if i+1 < len(line) {
+				i++
+			}
+		case char == '\'':
+			context.state = continuationSingleQuoted
+			context.atWordStart = false
+		case char == '"':
+			context.state = continuationDoubleQuoted
+			context.atWordStart = false
+		case char == '#' && context.atWordStart:
+			context.state = continuationComment
+		default:
+			context.atWordStart = false
+		}
+	}
+
+	return context
+}
+
+func nextPhysicalLine(input string, start int) (lineEnd, newlineEnd int, ok bool) {
+	for i := start; i < len(input); i++ {
+		switch input[i] {
+		case '\n':
+			return i, i + 1, true
+		case '\r':
+			if i+1 < len(input) && input[i+1] == '\n' {
+				return i, i + 2, true
+			}
+			return i, i + 1, true
+		}
+	}
+
+	return len(input), len(input), false
+}
+
+func isHorizontalWhitespace(char byte) bool {
+	return char == ' ' || char == '\t'
+}
+
+func isShellControlCharacter(char byte) bool {
+	return strings.ContainsRune(";|&()<>", rune(char))
 }
 
 // split has been copied from go-shellquote and slightly modified so as to also

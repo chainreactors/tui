@@ -50,7 +50,7 @@ func (c *Console) SetDefaultFlagHighlight(seq string) {
 // highlightSyntax - Entrypoint to all input syntax highlighting in the Wiregost console.
 func (c *Console) highlightSyntax(input []rune) (line string) {
 	// Split the line as shellwords
-	args, unprocessed, err := split(string(input), true)
+	args, unprocessed, err := split(string(input), true, c.getEscapeMode())
 	if err != nil {
 		args = append(args, unprocessed)
 	}

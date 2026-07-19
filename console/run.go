@@ -119,8 +119,13 @@ func (m *Menu) RunCommandLine(ctx context.Context, line string) (err error) {
 		return
 	}
 
-	// Split the line into shell words.
-	args, err := shellquote.Split(line)
+	// Split the line into words using the same escape mode as interactive input.
+	var args []string
+	if m.console.getEscapeMode() == EscapeLiteral {
+		args, _, err = split(line, false, EscapeLiteral)
+	} else {
+		args, err = shellquote.Split(line)
+	}
 	if err != nil {
 		return fmt.Errorf("line error: %w", err)
 	}

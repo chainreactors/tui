@@ -42,7 +42,7 @@ func (c *Console) complete(line []rune, pos int) (comps readline.Completions) {
 
 	// Split the line as shell words, only using
 	// what the right buffer (up to the cursor)
-	args, prefixComp, prefixLine := splitArgs(line, pos)
+	args, prefixComp, prefixLine := splitArgs(line, pos, c.getEscapeMode())
 
 	// Cobra/pflag parsing state is mutable: both real command executions and
 	// carapace completion parsing will mark flags as Changed and record dash state.
@@ -370,14 +370,14 @@ func (c *Console) defaultStyleConfig() {
 // splitArgs splits the line in valid words, prepares them in various ways before calling
 // the completer with them, and also determines which parts of them should be used as
 // prefixes, in the completions and/or in the line.
-func splitArgs(line []rune, pos int) (args []string, prefixComp, prefixLine string) {
+func splitArgs(line []rune, pos int, mode EscapeMode) (args []string, prefixComp, prefixLine string) {
 	line = line[:pos]
 
 	// Remove all colors from the string
 	line = []rune(strip(string(line)))
 
 	// Split the line as shellwords, return them if all went fine.
-	args, remain, err := splitCompWords(string(line))
+	args, remain, err := splitCompWords(string(line), mode)
 
 	// We might have either no error and args, or no error and
 	// the cursor ready to complete a new word (last character
@@ -472,7 +472,7 @@ func unescapeValue(prefixComp, prefixLine, val string) string {
 
 // split has been copied from go-shellquote and slightly modified so as to also
 // return the remainder when the parsing failed because of an unterminated quote.
-func splitCompWords(input string) (words []string, remainder string, err error) {
+func splitCompWords(input string, mode EscapeMode) (words []string, remainder string, err error) {
 	var buf bytes.Buffer
 	words = make([]string, 0)
 
@@ -482,7 +482,7 @@ func splitCompWords(input string) (words []string, remainder string, err error) 
 		if strings.ContainsRune(splitChars, char) {
 			input = input[read:]
 			continue
-		} else if char == escapeChar {
+		} else if char == escapeChar && mode == EscapeShell {
 			// Look ahead for escaped newline so we can skip over it
 			next := input[read:]
 			if len(next) == 0 {
@@ -501,7 +501,7 @@ func splitCompWords(input string) (words []string, remainder string, err error) 
 
 		var word string
 
-		word, input, err = splitCompWord(input, &buf)
+		word, input, err = splitCompWord(input, &buf, mode)
 		if err != nil {
 			return words, word + input, err
 		}
@@ -514,7 +514,7 @@ func splitCompWords(input string) (words []string, remainder string, err error) 
 
 // splitWord has been modified to return the remainder of the input (the part that has not been
 // added to the buffer) even when an error is returned.
-func splitCompWord(input string, buf *bytes.Buffer) (word string, remainder string, err error) {
+func splitCompWord(input string, buf *bytes.Buffer, mode EscapeMode) (word string, remainder string, err error) {
 	buf.Reset()
 
 raw:
@@ -532,7 +532,7 @@ raw:
 				buf.WriteString(input[0 : len(input)-len(cur)-read])
 				input = cur
 				goto double
-			case char == escapeChar:
+			case char == escapeChar && mode == EscapeShell:
 				buf.WriteString(input[0 : len(input)-len(cur)-read])
 				buf.WriteRune(char)
 				input = cur
@@ -587,6 +587,10 @@ double:
 				input = cur
 				goto raw
 			case escapeChar:
+				if mode != EscapeShell {
+					continue
+				}
+
 				// bash only supports certain escapes in double-quoted strings
 				char2, l2 := utf8.DecodeRuneInString(cur)
 				cur = cur[l2:]

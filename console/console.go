@@ -19,6 +19,7 @@ type Console struct {
 	flagHighlight string           // Ansi code for highlighting of flag in default highlighter. Grey by default.
 	menus         map[string]*Menu // Different command trees, prompt engines, etc.
 	filters       []string         // Hide commands based on their attributes and current context.
+	escapeMode    EscapeMode       // How input lines are split into words (guarded by mutex).
 	isExecuting   bool             // Used by log functions, which need to adapt behavior (print the prompt, etc.)
 	printed       bool             // Used to adjust asynchronous messages too.
 	mutex         *sync.RWMutex    // Concurrency management.
@@ -129,6 +130,35 @@ func NewWithTerminal(app string, t *rlterm.Terminal) *Console {
 // further configure it or use some of its API for lower-level stuff.
 func (c *Console) Shell() *readline.Shell {
 	return c.shell
+}
+
+// EscapeMode controls how the console splits an input line into command words.
+type EscapeMode int
+
+const (
+	// EscapeShell is the default POSIX-shell behavior: a backslash escapes the
+	// following character, and a trailing backslash requests line continuation.
+	EscapeShell EscapeMode = iota
+
+	// EscapeLiteral preserves backslashes as ordinary characters. Quotes still
+	// group words, and a trailing backslash does not request line continuation.
+	EscapeLiteral
+)
+
+// SetEscapeMode selects how the console treats backslashes during execution,
+// multiline detection, completion, and syntax highlighting.
+func (c *Console) SetEscapeMode(mode EscapeMode) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.escapeMode = mode
+}
+
+func (c *Console) getEscapeMode() EscapeMode {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	return c.escapeMode
 }
 
 // SetPrintLogo - Sets the function that will be called to print the logo.

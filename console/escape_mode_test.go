@@ -46,6 +46,12 @@ func TestParseEscapeMode(t *testing.T) {
 			input: `run C:\Temp # note`,
 			want:  []string{"run", `C:\Temp`},
 		},
+		{
+			name:  "literal joins multiline arguments",
+			mode:  EscapeLiteral,
+			input: "run --host 127.0.0.1\n\t--port 1080",
+			want:  []string{"run", "--host", "127.0.0.1", "--port", "1080"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -75,6 +81,7 @@ func TestAcceptMultilineEscapeMode(t *testing.T) {
 		{"literal path trailing backslash completes", EscapeLiteral, `run C:\Temp\`, true},
 		{"literal standalone backslash completes", EscapeLiteral, `run arg \`, true},
 		{"literal unterminated quote continues", EscapeLiteral, `run "unfinished`, false},
+		{"literal complete multiline input accepts", EscapeLiteral, "run alpha\n\tbeta", true},
 	}
 
 	for _, tt := range tests {
@@ -123,6 +130,7 @@ func TestRunCommandLineEscapeMode(t *testing.T) {
 		{"literal preserves backslashes", EscapeLiteral, `run C:\Windows\Temp`, []string{`C:\Windows\Temp`}},
 		{"literal preserves trailing backslash", EscapeLiteral, `run C:\Windows\Temp\`, []string{`C:\Windows\Temp\`}},
 		{"literal still groups quotes", EscapeLiteral, `run "a b" C:\x`, []string{"a b", `C:\x`}},
+		{"literal joins multiline arguments", EscapeLiteral, "run alpha\n\tbeta", []string{"alpha", "beta"}},
 	}
 
 	for _, tt := range tests {

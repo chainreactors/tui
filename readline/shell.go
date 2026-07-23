@@ -64,6 +64,14 @@ type Shell struct {
 	// into the input buffer. It is called for bracketed paste payloads.
 	PasteTransformer func(text string) string
 
+	// OnReadlineReady runs after the primary prompt and the first full display
+	// refresh have established current cursor coordinates. Asynchronous UI
+	// integrations can then redraw without using state from the previous read.
+	OnReadlineReady func()
+	// OnReadlineDone runs before Readline restores terminal/display state on any
+	// return path. Async integrations should stop redrawing the completed input.
+	OnReadlineDone func()
+
 	// Completer is a function that produces completions.
 	// It takes the readline line ([]rune) and cursor pos as parameters,
 	// and returns completions with their associated metadata/settings.
@@ -238,4 +246,34 @@ func (rl *Shell) Refresh() {
 	restore := term.Activate(rl.Terminal.Out, rl.Terminal.Control)
 	defer restore()
 	rl.Display.Refresh()
+}
+
+// RefreshWithoutAutocomplete redraws the current readline display without
+// generating a new completion menu. It is intended for asynchronous status or
+// footer changes that are unrelated to user input.
+func (rl *Shell) RefreshWithoutAutocomplete() {
+	if rl == nil || rl.Display == nil {
+		return
+	}
+	restore := term.Activate(rl.Terminal.Out, rl.Terminal.Control)
+	defer restore()
+	rl.Display.RefreshWithoutAutocomplete()
+}
+
+// RefreshPrimaryWithoutAutocomplete redraws the full primary prompt, input,
+// hints, and any existing completion menu without generating new completion
+// candidates. It is used when an asynchronous status row above the prompt
+// changes height or content.
+func (rl *Shell) RefreshPrimaryWithoutAutocomplete() {
+	if rl == nil || rl.Display == nil || rl.Prompt == nil {
+		return
+	}
+	restore := term.Activate(rl.Terminal.Out, rl.Terminal.Control)
+	defer restore()
+	rl.Display.CursorToLineStart()
+	term.MoveCursorBackwards(term.GetWidth())
+	term.MoveCursorUp(rl.Prompt.PrimaryUsed())
+	term.Print(term.ClearScreenBelow)
+	rl.Prompt.PrimaryPrint()
+	rl.Display.RefreshWithoutAutocomplete()
 }

@@ -86,7 +86,7 @@ func (m *HelpModel) Run() error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf(HelpStyle("<Press enter to exit>\n"))
+	fmt.Print(HelpStyle("<Press enter to exit>\n"))
 	os.Stdin.Write([]byte("\n"))
 	ClearLines(1)
 	return nil

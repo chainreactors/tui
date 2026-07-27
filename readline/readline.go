@@ -79,10 +79,18 @@ func (rl *Shell) Readline() (string, error) {
 	defer term.Print(keymap.CursorStyle("default"))
 
 	rl.init()
+	// The done hook is registered after readline's display defers so async
+	// renderers are disabled before transient prompts or terminal modes restore.
+	if rl.OnReadlineDone != nil {
+		defer rl.OnReadlineDone()
+	}
 
 	// Terminal resize events
 	resize := display.WatchResize(rl.Display)
 	defer close(resize)
+	// Async consumers must not redraw until the first Refresh has computed line,
+	// cursor and helper coordinates for this specific Readline() invocation.
+	ready := false
 
 	for {
 		// Whether or not the command is resolved, let the macro
@@ -98,6 +106,12 @@ func (rl *Shell) Readline() (string, error) {
 		// Since we always update helpers after being asked to read
 		// for user input again, we do it before actually reading it.
 		rl.Display.Refresh()
+		if !ready {
+			ready = true
+			if rl.OnReadlineReady != nil {
+				rl.OnReadlineReady()
+			}
+		}
 
 		// Block and wait for available user input keys.
 		// These might be read on stdin, or already available because

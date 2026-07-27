@@ -97,12 +97,25 @@ func (e *Engine) inlineSuggestionApplies(currentLine string) bool {
 // Refresh recomputes and redisplays the entire readline interface, except
 // the first lines of the primary prompt when the latter is a multiline one.
 func (e *Engine) Refresh() {
+	e.refresh(true)
+}
+
+// RefreshWithoutAutocomplete redraws the current editor and helpers without
+// generating a new autocomplete menu. External status/footer updates use this
+// path so an empty prompt cannot flash the full command list.
+func (e *Engine) RefreshWithoutAutocomplete() {
+	e.refresh(false)
+}
+
+func (e *Engine) refresh(runAutocomplete bool) {
 	term.Print(term.HideCursor)
 
 	// Trigger autocomplete early so that inline suggestions are ready
 	// before displayLine() is called. This ensures fish-style suggestions
 	// appear immediately as the user types.
-	e.completer.Autocomplete()
+	if runAutocomplete {
+		e.completer.Autocomplete()
+	}
 
 	// Go back to the first column, and if the primary prompt
 	// was not printed yet, back up to the line's beginning row.

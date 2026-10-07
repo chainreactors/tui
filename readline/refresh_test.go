@@ -4,12 +4,50 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/chainreactors/tui/readline/internal/display"
 	rlterm "github.com/chainreactors/tui/readline/terminal"
 )
+
+func TestPrimaryRedrawKeepsWrappedDraftBelowOutput(t *testing.T) {
+	for name, redraw := range map[string]func(*Shell){
+		"output":           func(rl *Shell) { _, _ = rl.Printf("committed") },
+		"transient output": func(rl *Shell) { _, _ = rl.PrintTransientf("committed") },
+		"status":           func(rl *Shell) { rl.RefreshPrimaryWithoutAutocomplete() },
+	} {
+		t.Run(name, func(t *testing.T) {
+			var output bytes.Buffer
+			terminal := rlterm.Stream(strings.NewReader(""), &output, &output, rlterm.NewControl(false, 12, 24))
+			rl := NewShellWithTerminal(terminal)
+			rl.Prompt.Primary(func() string { return "draft> " })
+			const draft = "keep this wrapped draft"
+			rl.Line().Set([]rune(draft)...)
+			rl.Cursor().Set(len(draft))
+			display.Init(rl.Display, nil)
+			rl.RefreshWithoutAutocomplete()
+			output.Reset()
+
+			redraw(rl)
+
+			// Once the full prompt has been printed at its new position, the
+			// editor must not backtrack into the output above it to print the draft.
+			_, refresh, ok := strings.Cut(output.String(), "\x1b[?25l")
+			beforePrompt, _, hasPrompt := strings.Cut(refresh, "draft> ")
+			if !ok || !hasPrompt {
+				t.Fatalf("missing prompt redraw: %q", output.String())
+			}
+			if regexp.MustCompile("\x1b\\[[0-9]+A").MatchString(beforePrompt) {
+				t.Fatalf("draft redraw moved above the new prompt: %q", beforePrompt)
+			}
+			if string(*rl.Line()) != draft || rl.Cursor().Pos() != len(draft) {
+				t.Fatal("redraw changed the draft or editing cursor")
+			}
+		})
+	}
+}
 
 func TestRefreshWithoutAutocompleteDoesNotGenerateMenu(t *testing.T) {
 	var output bytes.Buffer

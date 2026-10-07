@@ -190,7 +190,7 @@ func (rl *Shell) Printf(msg string, args ...any) (n int, err error) {
 	n, err = fmt.Fprintf(rl.Terminal.Out, msg+"\n", args...)
 
 	// Redisplay the prompt, input line and active helpers.
-	rl.Prompt.PrimaryPrint()
+	rl.Display.PrintPrimaryPrompt()
 	rl.Display.Refresh()
 
 	return
@@ -217,7 +217,7 @@ func (rl *Shell) PrintTransientf(msg string, args ...any) (n int, err error) {
 	n, err = fmt.Fprint(rl.Terminal.Out, formatted)
 
 	// Redisplay the prompt, input line and active helpers.
-	rl.Prompt.PrimaryPrint()
+	rl.Display.PrintPrimaryPrompt()
 	rl.Display.Refresh()
 
 	return
@@ -274,6 +274,6 @@ func (rl *Shell) RefreshPrimaryWithoutAutocomplete() {
 	term.MoveCursorBackwards(term.GetWidth())
 	term.MoveCursorUp(rl.Prompt.PrimaryUsed())
 	term.Print(term.ClearScreenBelow)
-	rl.Prompt.PrimaryPrint()
+	rl.Display.PrintPrimaryPrompt()
 	rl.Display.RefreshWithoutAutocomplete()
 }

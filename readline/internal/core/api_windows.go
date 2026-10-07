@@ -6,9 +6,12 @@
 package core
 
 import (
+	"os"
 	"reflect"
 	"syscall"
 	"unsafe"
+
+	"github.com/chainreactors/tui/readline/internal/term"
 )
 
 var (
@@ -167,11 +170,22 @@ func setConsoleCursorPosition(c *_COORD) error {
 
 // GetCursorPos returns the current cursor position on Windows.
 func (k *Keys) GetCursorPos() (x, y int) {
+	// A stream terminal (e.g. xterm over AOP) has its own cursor. Win32
+	// describes only the host console, even when the process has one attached.
+	// Let display.computeCoordinates use the printed prompt's width instead.
+	input := k.inputReader()
+	_, nativeReader := input.(*rawReader)
+	if (!nativeReader && input != os.Stdin) || term.Output() != os.Stdout {
+		return -1, -1
+	}
+
 	t := new(_CONSOLE_SCREEN_BUFFER_INFO)
-	kernel.GetConsoleScreenBufferInfo(
+	if err := kernel.GetConsoleScreenBufferInfo(
 		stdout,
 		uintptr(unsafe.Pointer(t)),
-	)
+	); err != nil {
+		return -1, -1
+	}
 
 	x = int(t.dwCursorPosition.x) + 1
 	y = int(t.dwCursorPosition.y)

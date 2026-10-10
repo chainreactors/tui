@@ -12,6 +12,38 @@ import (
 	rlterm "github.com/chainreactors/tui/readline/terminal"
 )
 
+func TestResizeRedrawUsesReflowedCursorRow(t *testing.T) {
+	var output bytes.Buffer
+	control := rlterm.NewControl(false, 80, 24)
+	rl := NewShellWithTerminal(rlterm.Stream(strings.NewReader(""), &output, &output, control))
+	rl.Prompt.Primary(func() string { return "draft> " })
+	draft := strings.Repeat("x", 60)
+	rl.Line().Set([]rune(draft)...)
+	rl.Cursor().Set(len(draft))
+	display.Init(rl.Display, nil)
+	rl.RefreshWithoutAutocomplete()
+	for _, width := range []int{30, 80} {
+		control.SetSize(width, 24)
+		output.Reset()
+		rl.RefreshWithoutAutocomplete()
+		beforePrompt, _, ok := strings.Cut(output.String(), "draft> ")
+		if !ok {
+			t.Fatal("missing prompt redraw")
+		}
+		up := regexp.MustCompile("\x1b\\[[0-9]+A").FindString(beforePrompt)
+		want := ""
+		if width == 30 {
+			want = "\x1b[2A"
+		}
+		if up != want {
+			t.Fatalf("width %d: cursor movement before prompt = %q, want %q (%q)", width, up, want, beforePrompt)
+		}
+		if string(*rl.Line()) != draft || rl.Cursor().Pos() != len(draft) {
+			t.Fatal("resize changed the draft or editing cursor")
+		}
+	}
+}
+
 func TestPrimaryRedrawKeepsWrappedDraftBelowOutput(t *testing.T) {
 	for name, redraw := range map[string]func(*Shell){
 		"output":           func(rl *Shell) { _, _ = rl.Printf("committed") },

@@ -32,6 +32,8 @@ type Engine struct {
 	hintRows       int
 	compRows       int
 	primaryPrinted bool
+	renderWidth    int
+	cursorPrefix   core.Line
 
 	// UI components
 	keys             *core.Keys
@@ -109,6 +111,12 @@ func (e *Engine) RefreshWithoutAutocomplete() {
 
 func (e *Engine) refresh(runAutocomplete bool) {
 	term.Print(term.HideCursor)
+	if e.renderWidth > 0 && e.renderWidth != term.GetWidth() && !e.primaryPrinted {
+		// The terminal already reflowed the previous draft to its new width.
+		// Back up from that cursor row, not the row cached before the resize
+		// or the editor's cursor after the next key has been applied.
+		e.cursorCol, e.cursorRow = core.CoordinatesLine(&e.cursorPrefix, e.startCols)
+	}
 
 	// Trigger autocomplete early so that inline suggestions are ready
 	// before displayLine() is called. This ensures fish-style suggestions
@@ -141,6 +149,8 @@ func (e *Engine) refresh(runAutocomplete bool) {
 	e.displayHelpers()
 	e.cursorHintToLineStart()
 	e.lineStartToCursorPos()
+	e.renderWidth = term.GetWidth()
+	e.cursorPrefix.Set((*e.line)[:e.cursor.Pos()]...)
 	term.Print(term.ShowCursor)
 }
 

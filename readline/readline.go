@@ -116,7 +116,9 @@ func (rl *Shell) Readline() (string, error) {
 		// Block and wait for available user input keys.
 		// These might be read on stdin, or already available because
 		// the macro engine has fed some keys in bulk when running one.
-		core.WaitAvailableKeys(rl.Keys, rl.Config)
+		if core.WaitAvailableKeys(rl.Keys, rl.Config) {
+			continue
+		}
 
 		// If the input is closed, we must return the line
 		// and the error so that the caller can handle it.

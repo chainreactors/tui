@@ -15,11 +15,8 @@ func WatchResize(eng *Engine) chan<- bool {
 	output := term.Output()
 	control := term.CurrentControl()
 	unregister := term.OnResize(func(_, _ int) {
-		if eng.keys != nil && !eng.keys.IsReading() && !eng.keys.IsWaiting() {
-			restore := term.Activate(output, control)
-			eng.completer.GenerateCached()
-			eng.Refresh()
-			restore()
+		if eng.keys != nil && !eng.keys.IsReading() {
+			eng.keys.RequestRefresh()
 		}
 	})
 

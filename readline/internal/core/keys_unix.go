@@ -175,7 +175,15 @@ func (k *Keys) readInputFiltered() (keys []byte, err error) {
 }
 
 func (k *Keys) readInputWithTimeout(buf []byte, timeout time.Duration) (int, error) {
-	k.inputReadMu.Lock()
+	if timeout > 0 {
+		// A display refresh can overlap the editor entering its blocking read.
+		// Cursor queries must keep their deadline even while that read owns input.
+		if !k.inputReadMu.TryLock() {
+			return 0, errCursorPosTimeout
+		}
+	} else {
+		k.inputReadMu.Lock()
+	}
 	defer k.inputReadMu.Unlock()
 	reader := k.inputReader()
 	file, ok := reader.(*os.File)

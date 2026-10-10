@@ -12,7 +12,7 @@ import (
 	rlterm "github.com/chainreactors/tui/readline/terminal"
 )
 
-func TestResizeRedrawUsesReflowedCursorRow(t *testing.T) {
+func TestResizeRedrawUsesPreviousCursorRow(t *testing.T) {
 	var output bytes.Buffer
 	control := rlterm.NewControl(false, 80, 24)
 	rl := NewShellWithTerminal(rlterm.Stream(strings.NewReader(""), &output, &output, control))
@@ -32,7 +32,9 @@ func TestResizeRedrawUsesReflowedCursorRow(t *testing.T) {
 		}
 		up := regexp.MustCompile("\x1b\\[[0-9]+A").FindString(beforePrompt)
 		want := ""
-		if width == 30 {
+		// Terminals leave the active cursor line for the application to redraw.
+		// Before redrawing, move up by the rows used at the previous width.
+		if width == 80 {
 			want = "\x1b[2A"
 		}
 		if up != want {

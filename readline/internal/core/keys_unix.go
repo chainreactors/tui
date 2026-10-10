@@ -5,7 +5,6 @@ package core
 import (
 	"bytes"
 	"errors"
-	"io"
 	"os"
 	"os/signal"
 	"strconv"
@@ -27,6 +26,15 @@ func (k *Keys) GetCursorPos() (x, y int) {
 
 	var cursor []byte
 	var pending []byte
+	defer func() {
+		// A direction key or partial cursor reply is still keyboard input
+		// when the query expires. Return it to the editor in arrival order.
+		if len(pending) > 0 {
+			k.mutex.Lock()
+			k.buf = append(k.buf, pending...)
+			k.mutex.Unlock()
+		}
+	}()
 
 	deadline := time.Now().Add(cursorPosTimeout)
 
@@ -88,15 +96,14 @@ drain:
 
 			buf := make([]byte, keyScanBufSize)
 
-			read, err := readInputWithTimeout(k.inputReader(), buf, remaining)
+			read, err := k.readInputWithTimeout(buf, remaining)
+			pending = append(pending, buf[:read]...)
 			if err != nil {
 				if errors.Is(err, errCursorPosTimeout) {
 					return -1, -1
 				}
 				return disable()
 			}
-
-			pending = append(pending, buf[:read]...)
 
 			indices := rxRcvCursorPos.FindSubmatchIndex(pending)
 			if indices != nil {
@@ -108,7 +115,6 @@ drain:
 					k.buf = append(k.buf, suffix...)
 					k.mutex.Unlock()
 				}
-
 				y, err := strconv.Atoi(string(pending[indices[2]:indices[3]]))
 				if err != nil {
 					return disable()
@@ -119,6 +125,7 @@ drain:
 					return disable()
 				}
 
+				pending = nil
 				return x, y
 			}
 
@@ -148,8 +155,8 @@ func (k *Keys) readInputFiltered() (keys []byte, err error) {
 	// send by ourselves, because we pause reading.
 	buf := make([]byte, keyScanBufSize)
 
-	read, err := k.inputReader().Read(buf)
-	if err != nil && errors.Is(err, io.EOF) {
+	read, err := k.readInputWithTimeout(buf, 0)
+	if read == 0 && err != nil {
 		return
 	}
 
@@ -167,24 +174,52 @@ func (k *Keys) readInputFiltered() (keys []byte, err error) {
 	return keys, nil
 }
 
-func readInputWithTimeout(reader io.Reader, buf []byte, timeout time.Duration) (int, error) {
-	file, ok := reader.(*os.File)
-	if !ok {
-		type readResult struct {
-			n   int
-			err error
-		}
-		ch := make(chan readResult, 1)
-		go func() {
-			n, err := reader.Read(buf)
-			ch <- readResult{n: n, err: err}
-		}()
-		select {
-		case result := <-ch:
-			return result.n, result.err
-		case <-time.After(timeout):
+func (k *Keys) readInputWithTimeout(buf []byte, timeout time.Duration) (int, error) {
+	if timeout > 0 {
+		// A display refresh can overlap the editor entering its blocking read.
+		// Cursor queries must keep their deadline even while that read owns input.
+		if !k.inputReadMu.TryLock() {
 			return 0, errCursorPosTimeout
 		}
+	} else {
+		k.inputReadMu.Lock()
+	}
+	defer k.inputReadMu.Unlock()
+	reader := k.inputReader()
+	file, ok := reader.(*os.File)
+	if !ok {
+		// Arbitrary streams cannot cancel Read. Keep one outstanding read
+		// across query timeouts so the next editor read receives its bytes.
+		if k.inputRead == nil {
+			ch := make(chan inputReadResult, 1)
+			k.inputRead = ch
+			go func() {
+				data := make([]byte, keyScanBufSize)
+				n, err := reader.Read(data)
+				ch <- inputReadResult{data: data[:n], err: err}
+			}()
+		}
+		var expired <-chan time.Time
+		var refresh <-chan struct{}
+		if timeout > 0 {
+			timer := time.NewTimer(timeout)
+			defer timer.Stop()
+			expired = timer.C
+		} else {
+			refresh = k.refresh
+		}
+		select {
+		case result := <-k.inputRead:
+			k.inputRead = nil
+			return copy(buf, result.data), result.err
+		case <-expired:
+			return 0, errCursorPosTimeout
+		case <-refresh:
+			return 0, errInputRefresh
+		}
+	}
+	if timeout <= 0 {
+		return file.Read(buf)
 	}
 
 	fds := []unix.PollFd{{

@@ -24,6 +24,13 @@ var Stdin io.ReadCloser = os.Stdin
 
 var rxRcvCursorPos = regexp.MustCompile(`\x1b\[([0-9]+);([0-9]+)R`)
 
+var errInputRefresh = errors.New("input refresh requested")
+
+type inputReadResult struct {
+	data []byte
+	err  error
+}
+
 // Keys is used to read, manage and use keys input by the shell user.
 type Keys struct {
 	input     io.Reader
@@ -37,6 +44,10 @@ type Keys struct {
 	cursor    chan []byte // Cursor coordinates has been read on stdin.
 	resize    chan bool   // Resize events on Windows are sent on stdin. USED IN WINDOWS
 
+	inputReadMu sync.Mutex
+	inputRead   <-chan inputReadResult
+	refresh     chan struct{}
+
 	eof   bool            // EOF has been reached.
 	cfg   *inputrc.Config // Configuration file used for meta key settings
 	mutex sync.RWMutex    // Concurrency safety
@@ -47,6 +58,20 @@ func (k *Keys) SetInput(input io.Reader) {
 	k.mutex.Lock()
 	defer k.mutex.Unlock()
 	k.input = input
+	if k.refresh == nil {
+		k.refresh = make(chan struct{}, 1)
+	}
+}
+
+// RequestRefresh wakes stream input so the editor can redraw in its own loop.
+func (k *Keys) RequestRefresh() {
+	k.mutex.RLock()
+	refresh := k.refresh
+	k.mutex.RUnlock()
+	select {
+	case refresh <- struct{}{}:
+	default:
+	}
 }
 
 func (k *Keys) inputReader() io.Reader {
@@ -61,16 +86,17 @@ func (k *Keys) inputReader() io.Reader {
 
 // WaitAvailableKeys waits until an input key is either read from standard input,
 // or directly returns if the key stack still/already has available keys.
-func WaitAvailableKeys(keys *Keys, cfg *inputrc.Config) {
+// It returns true when the editor must redraw before dispatching more input.
+func WaitAvailableKeys(keys *Keys, cfg *inputrc.Config) bool {
 	keys.cfg = cfg
 
 	if len(keys.buf) > 0 && !keys.mustWait {
-		return
+		return false
 	}
 
 	// The macro engine might have fed some keys
 	if len(keys.macroKeys) > 0 {
-		return
+		return false
 	}
 
 	keys.mutex.Lock()
@@ -89,9 +115,12 @@ func WaitAvailableKeys(keys *Keys, cfg *inputrc.Config) {
 		// We will either read keyBuf from user, or an EOF
 		// send by ourselves, because we pause reading.
 		keyBuf, err := keys.readInputFiltered()
+		if errors.Is(err, errInputRefresh) {
+			return true
+		}
 		if err != nil && errors.Is(err, io.EOF) {
 			keys.eof = true
-			return
+			return false
 		}
 
 		if len(keyBuf) == 0 {
@@ -115,7 +144,7 @@ func WaitAvailableKeys(keys *Keys, cfg *inputrc.Config) {
 			keys.mutex.Unlock()
 		}
 
-		return
+		return false
 	}
 }
 
@@ -345,7 +374,10 @@ func (k *Keys) Feed(begin bool, keys ...rune) {
 	defer k.mutex.Unlock()
 
 	if begin {
-		k.macroKeys = append(keyBuf, k.macroKeys...)
+		// Prepending must take precedence over raw input fetched by a cursor
+		// query before the fed keys have all been dispatched.
+		k.buf = append([]byte(string(keyBuf)), k.buf...)
+		k.mustWait = false
 	} else {
 		k.macroKeys = append(k.macroKeys, keyBuf...)
 	}
